@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Résultats de l'analyse</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background-color: #f9f9f9;
+        }
+        h1 {
+            text-align: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: white;
+        }
+        th, td {
+            padding: 12px;
+            border: 1px solid #ddd;
+            vertical-align: top;
+        }
+        th {
+            background-color: #f0f0f0;
+            text-align: left;
+        }
+        tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+        .highlight {
+            font-weight: bold;
+            color: #d00000;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔎 Résultats de l'analyse</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Statut</th>
+                <th>Numéro de décision</th>
+                <th>Nom de l’intimé</th>
+                <th>Articles enfreints</th>
+                <th>Durée de radiation</th>
+                <th>Amendes</th>
+                <th>Autres sanctions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in resultats %}
+            <tr>
+                <td>{{ row['Statut'] }}</td>
+                <td>{{ row['numero de decision'] }}</td>
+                <td>{{ row["nom de l'intime"] }}</td>
+                <td>{{ row['articles enfreints']|safe }}</td>
+                <td>{{ row['duree totale effective radiation'] }}</td>
+                <td>{{ row['article amende/chef'] }}</td>
+                <td>{{ row['autres sanctions'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
