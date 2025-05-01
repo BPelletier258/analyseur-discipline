@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Recherche d'article disciplinaire</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f9f9f9;
+      padding: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      vertical-align: top;
+    }
+    th {
+      background-color: #f0f0f0;
+      text-align: left;
+    }
+    .highlight {
+      font-weight: bold;
+      background-color: #ffffcc;
+    }
+    .error {
+      color: red;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 Recherche d'article disciplinaire</h1>
+
+  <form id="uploadForm" enctype="multipart/form-data">
+    <label>Fichier Excel :
+      <input type="file" name="file" required />
+    </label>
+    <br /><br />
+    <label>Numéro d'article :
+      <input type="text" name="article" placeholder="Ex: 59(2)" required />
+    </label>
+    <br /><br />
+    <button type="submit">Analyser</button>
+  </form>
+
+  <div id="resultats"></div>
+  <div class="error" id="errorMsg"></div>
+
+  <script>
+    document.getElementById('uploadForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const form = e.target;
+      const formData = new FormData(form);
+      const resultDiv = document.getElementById('resultats');
+      const errorDiv = document.getElementById('errorMsg');
+      resultDiv.innerHTML = '';
+      errorDiv.textContent = '';
+
+      try {
+        const response = await fetch('/analyse', {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          errorDiv.textContent = data.error || 'Erreur inconnue';
+          return;
+        }
+
+        if (data.length === 0) {
+          resultDiv.innerHTML = '<p>Aucun résultat trouvé.</p>';
+          return;
+        }
+
+        const orderedKeys = [
+          "Statut",
+          "numero de decision",
+          "nom de l'intime",
+          "articles enfreints",
+          "duree totale effective radiation",
+          "article amende/chef",
+          "autres sanctions"
+        ];
+
+        const articleSearched = formData.get("article").trim();
+
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+
+        for (const key of orderedKeys) {
+          const th = document.createElement('th');
+          th.textContent = key;
+          headerRow.appendChild(th);
+        }
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        for (const row of data) {
+          const tr = document.createElement('tr');
+          for (const key of orderedKeys) {
+            const td = document.createElement('td');
+            let value = row[key] || "";
+            if (typeof value === 'string' && key === 'articles enfreints') {
+              const pattern = new RegExp(`(Art\\.?\\s*${articleSearched.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+              value = value.replace(pattern, '<span class="highlight">$1</span>');
+              td.innerHTML = value;
+            } else {
+              td.textContent = value;
+            }
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        resultDiv.appendChild(table);
+      } catch (err) {
+        errorDiv.textContent = "Erreur de traitement: " + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
