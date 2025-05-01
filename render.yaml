@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: recherche-article-disciplinaire
+    env: python
+    buildCommand: ""
+    startCommand: "python main.py"
+    envVars:
+      - key: FLASK_ENV
+        value: production
+    autoDeploy: true
