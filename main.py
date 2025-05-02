@@ -2,7 +2,8 @@ import os
 import re
 import unicodedata
 import pandas as pd
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, render_template
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
@@ -15,49 +16,52 @@ def normalize_column(col_name):
     return col_name
 
 def analyse_article_articles_enfreints_only(df, article_number):
-    pattern_explicit = rf'\b[Aa]rt\.?\s*{re.escape(article_number)}(\b|[^a-zA-Z0-9])'
-    mask_articles_enfreints = df['articles enfreints'].astype(str).str.contains(
-        pattern_explicit, na=False, flags=re.IGNORECASE
-    )
+    pattern_explicit = rf'\b[Aa]rt\.?\s*{re.escape(article_number)}\b'
+    mask_articles_enfreints = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
     conformes = df[mask_articles_enfreints].copy()
     conformes['Statut'] = "Conforme"
 
     if conformes.empty:
         raise ValueError(f"Aucun intime trouvé pour l'article {article_number} demandé.")
 
-    result = pd.DataFrame({
-        'Nom de l’intime': conformes["nom de l'intime"],
-        f'Articles enfreints (Art {article_number})': conformes['articles enfreints'],
-        f'Périodes de radiation (Art {article_number})': conformes['duree totale effective radiation'],
-        f'Amendes (Art {article_number})': conformes['article amende/chef'],
-        f'Autres sanctions (Art {article_number})': conformes['autres sanctions'],
-        'Statut': conformes['Statut']
-    })
-    return result
+    conformes['articles enfreints'] = conformes['articles enfreints'].astype(str).str.replace(
+        pattern_explicit,
+        r'<span class="highlight">\g<0></span>',
+        flags=re.IGNORECASE,
+        regex=True
+    )
 
-def format_html_table(df, article_number):
-    return df.style.set_properties(
-        subset=[f'Articles enfreints (Art {article_number})'],
-        **{'color': 'red', 'font-weight': 'bold'}
-    ).to_html(escape=False)
+    return conformes[[
+        "numero de decision",
+        "nom de l'intime",
+        "articles enfreints",
+        "duree totale effective radiation",
+        "article amende/chef",
+        "autres sanctions",
+        "Statut"
+    ]]
 
 @app.route('/')
 def index():
-    return render_template("index.html")
+    return render_template('index.html')
 
-@app.route('/analyse', methods=["POST"])
+@app.route('/analyse', methods=['POST'])
 def analyser():
     try:
-        if "fichier" not in request.files or "article" not in request.form:
+        if 'fichier' not in request.files or 'article' not in request.form:
             raise ValueError("Veuillez fournir un fichier et un numéro d'article.")
 
-        file = request.files['fichier']
+        fichier = request.files['fichier']
         article = request.form['article'].strip()
 
-        df = pd.read_excel(file)
-        df = df.rename(columns=lambda c: normalize_column(c))
+        if fichier.filename == '':
+            raise ValueError("Aucun fichier sélectionné.")
+
+        df = pd.read_excel(fichier)
+        df.columns = [normalize_column(c) for c in df.columns]
 
         required_cols = [
+            "numero de decision",
             "articles enfreints",
             "duree totale effective radiation",
             "article amende/chef",
@@ -66,20 +70,21 @@ def analyser():
         ]
 
         if not all(col in df.columns for col in required_cols):
-            return render_template("index.html", erreur="Le fichier est incomplet. Merci de vérifier les colonnes requises.")
+            raise ValueError("Le fichier est incomplet. La colonne 'Numéro de décision' est requise.")
 
         resultats = analyse_article_articles_enfreints_only(df, article)
-        html_table = format_html_table(resultats, article)
-        return html_table
+        html_table = resultats.to_dict(orient='records')
+        return render_template('index.html', resultats=html_table)
 
     except ValueError as ve:
-        return render_template("index.html", erreur=f"Erreur de traitement : {str(ve)}")
+        return render_template('index.html', erreur=str(ve))
     except Exception as e:
-        return render_template("index.html", erreur=f"Erreur de traitement : {str(e)}")
+        return render_template('index.html', erreur=str(e))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
