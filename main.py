@@ -1,8 +1,8 @@
-from flask import Flask, render_template, request, jsonify
+import os
 import pandas as pd
 import re
 import unicodedata
-import os
+from flask import Flask, request, render_template, jsonify
 
 app = Flask(__name__)
 
@@ -19,60 +19,54 @@ def analyse_article_articles_enfreints_only(df, article_number):
     mask_articles_enfreints = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
     conformes = df[mask_articles_enfreints].copy()
     conformes['Statut'] = "Conforme"
-
     if conformes.empty:
         raise ValueError(f"Aucun intime trouvé pour l'article {article_number} demandé.")
+    result = pd.DataFrame({
+        'Nom de l’intime': conformes["nom de l'intime"],
+        f'Articles enfreints (Art {article_number})': conformes['articles enfreints'],
+        f'Périodes de radiation (Art {article_number})': conformes['duree totale effective radiation'],
+        f'Amendes (Art {article_number})': conformes['article amende/chef'],
+        f'Autres sanctions (Art {article_number})': conformes['autres sanctions'],
+        'Statut': conformes['Statut']
+    })
+    return result
 
-    result = conformes[[
-        "Statut",
-        "numero de decision",
-        "nom de l'intime",
-        "articles enfreints",
-        "duree totale effective radiation",
-        "article amende/chef",
-        "autres sanctions"
-    ]]
-
-    return result.to_dict(orient="records")
-
-@app.route('/')
+@app.route("/", methods=["GET", "POST"])
 def index():
-    return render_template('index.html')
+    if request.method == "POST":
+        try:
+            fichier = request.files.get("fichier_excel")
+            article = request.form.get("article")
 
-@app.route('/analyse', methods=['POST'])
-def analyser():
-    try:
-        file = request.files['fichier']
-        article = request.form['article'].strip()
+            if not fichier or not article:
+                return render_template("index.html", erreur="Veuillez fournir un fichier et un numéro d'article.")
 
-        if not file:
-            return jsonify({'error': 'Aucun fichier reçu.'}), 400
+            df = pd.read_excel(fichier)
+            df = df.rename(columns=lambda c: normalize_column(c))
 
-        df = pd.read_excel(file)
-        df = df.rename(columns=lambda c: normalize_column(c))
+            required_cols = [
+                "articles enfreints",
+                "duree totale effective radiation",
+                "article amende/chef",
+                "autres sanctions",
+                "nom de l'intime"
+            ]
+            if not all(col in df.columns for col in required_cols):
+                return render_template("index.html", erreur="Le fichier est incomplet. Merci de vérifier la structure.")
 
-        required_cols = [
-            "articles enfreints",
-            "duree totale effective radiation",
-            "article amende/chef",
-            "autres sanctions",
-            "nom de l'intime",
-            "numero de decision"
-        ]
-        if not all(col in df.columns for col in required_cols):
-            return jsonify({'error': 'Le fichier est incomplet. Merci de vérifier la structure.'}), 400
+            resultats = analyse_article_articles_enfreints_only(df, article)
+            return render_template("resultats.html", tables=[resultats.to_html(classes='table table-bordered')], article=article)
 
-        resultats = analyse_article_articles_enfreints_only(df, article)
-        return jsonify(resultats)
+        except ValueError as ve:
+            return render_template("index.html", erreur=str(ve))
+        except Exception as e:
+            return render_template("index.html", erreur=str(e))
 
-    except ValueError as ve:
-        return jsonify({'error': str(ve)}), 400
-    except Exception as e:
-        return render_template('index.html', erreur=str(e))
-
+    return render_template("index.html")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
