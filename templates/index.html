@@ -7,107 +7,98 @@
         body {
             font-family: Arial, sans-serif;
             padding: 40px;
-            background-color: #fdfdfd;
         }
-
         h1 {
             font-size: 2em;
-            margin-bottom: 1em;
+            margin-bottom: 20px;
         }
-
-        label {
+        .highlight {
             font-weight: bold;
+            color: red;
         }
-
-        input[type="file"],
-        input[type="text"] {
-            margin-top: 5px;
-            margin-bottom: 15px;
-            padding: 5px;
-            width: 300px;
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 30px;
         }
-
-        button {
-            padding: 8px 16px;
-            font-size: 1em;
-            cursor: pointer;
+        th, td {
+            border: 1px solid #aaa;
+            padding: 8px;
+            text-align: left;
         }
-
-        .erreur {
+        th {
+            background-color: #f0f0f0;
+        }
+        .error {
             color: red;
             font-weight: bold;
             margin-top: 20px;
         }
-
-        table {
-            margin-top: 25px;
-            border-collapse: collapse;
-            width: 100%;
-        }
-
-        th, td {
-            border: 1px solid #ccc;
-            padding: 8px;
-            text-align: left;
-        }
-
-        th {
-            background-color: #eee;
-        }
-
-        td:first-child {
+        label {
             font-weight: bold;
         }
-
-        .highlight {
-            color: red;
-            font-weight: bold;
+        input[type="file"],
+        input[type="text"] {
+            padding: 6px;
+            margin-bottom: 12px;
+            margin-left: 10px;
+        }
+        button {
+            padding: 8px 14px;
+            font-size: 1em;
         }
     </style>
 </head>
 <body>
+
     <h1>🔍 Recherche d'article disciplinaire</h1>
 
     <form method="post" action="/analyse" enctype="multipart/form-data">
-        <div>
-            <label for="fichier">Fichier Excel :</label><br>
-            <input type="file" name="fichier" id="fichier" required>
-        </div>
-        <div>
-            <label for="article">Numéro d'article :</label><br>
-            <input type="text" name="article" id="article" required>
-        </div>
-        <div>
-            <button type="submit">Analyser</button>
-        </div>
+        <label for="fichier">Fichier Excel :</label>
+        <input type="file" name="fichier" required><br><br>
+
+        <label for="article">Numéro d'article :</label>
+        <input type="text" name="article" required>
+        <button type="submit">Analyser</button>
     </form>
 
     {% if erreur %}
-        <div class="erreur">Erreur de traitement : {{ erreur }}</div>
+        <div class="error">Erreur de traitement : {{ erreur }}</div>
     {% endif %}
 
     {% if resultats %}
+        <h2>Résultats</h2>
         <table>
             <thead>
                 <tr>
-                    {% for col in resultats[0].keys() %}
-                        <th>{{ col }}</th>
-                    {% endfor %}
+                    <th>📄 Numéro de décision</th>
+                    <th>🧑‍⚖️ Nom de l’intimé</th>
+                    <th>🔹 Articles enfreints</th>
+                    <th>⏳ Périodes de radiation</th>
+                    <th>💵 Amendes</th>
+                    <th>📜 Autres sanctions</th>
+                    <th>📋 Statut</th>
                 </tr>
             </thead>
             <tbody>
                 {% for row in resultats %}
-                    <tr>
-                        {% for value in row.values() %}
-                            <td class="{% if 'Art' in value|string %}highlight{% endif %}">{{ value }}</td>
-                        {% endfor %}
-                    </tr>
+                <tr>
+                    <td>{{ row["numero de decision"] }}</td>
+                    <td>{{ row["nom de l'intime"] }}</td>
+                    <td>{{ row["articles enfreints"]|safe }}</td>
+                    <td>{{ row["duree totale effective radiation"] }}</td>
+                    <td>{{ row["article amende/chef"] }}</td>
+                    <td>{{ row["autres sanctions"] }}</td>
+                    <td>{{ row["Statut"] }}</td>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
     {% endif %}
+
 </body>
 </html>
+
 
 
 
