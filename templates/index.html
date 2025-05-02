@@ -4,30 +4,48 @@
     <meta charset="UTF-8">
     <title>Recherche d'article disciplinaire</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f9f9f9; }
-        h1 { color: #222; }
-        .erreur { color: red; font-weight: bold; }
-        label { display: block; margin-top: 20px; font-size: 1.1em; }
-        input[type="text"], input[type="file"] { font-size: 1em; padding: 5px; }
-        button { margin-top: 20px; padding: 10px 20px; font-size: 1em; }
+        body {
+            font-family: Arial, sans-serif;
+            padding: 2em;
+        }
+        h1 {
+            font-size: 2em;
+        }
+        label {
+            display: block;
+            margin-top: 1em;
+        }
+        input[type="file"], input[type="text"] {
+            margin-top: 0.5em;
+            padding: 0.3em;
+        }
+        button {
+            margin-top: 1.5em;
+            padding: 0.5em 1em;
+        }
+        .erreur {
+            color: red;
+            margin-top: 1.5em;
+        }
     </style>
 </head>
 <body>
     <h1>🔍 Recherche d'article disciplinaire</h1>
 
-    <form method="post" action="/analyse/{{ request.form['article'] if request.form.get('article') else '' }}" enctype="multipart/form-data">
+    <form method="post" action="/analyse" enctype="multipart/form-data">
         <label for="fichier">Fichier Excel :</label>
-        <input type="file" name="fichier" required>
+        <input type="file" name="fichier_excel" id="fichier" required>
 
         <label for="article">Numéro d'article :</label>
-        <input type="text" name="article" required>
+        <input type="text" name="numero_article" id="article" required>
 
         <button type="submit">Analyser</button>
     </form>
 
     {% if erreur %}
-        <p class="erreur">Erreur de traitement: {{ erreur }}</p>
+        <p class="erreur">Erreur de traitement : {{ erreur }}</p>
     {% endif %}
 </body>
 </html>
+
 
