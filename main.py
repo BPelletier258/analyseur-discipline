@@ -68,7 +68,7 @@ def analyser():
     except ValueError as ve:
         return jsonify({'error': str(ve)}), 400
     except Exception as e:
-        return jsonify({'error': 'Une erreur est survenue. Merci de réessayer.'}), 500
+    return render_template('index.html', erreur=str(e))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
