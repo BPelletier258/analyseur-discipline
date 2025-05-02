@@ -6,26 +6,15 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            padding: 2em;
+            padding: 40px;
         }
         h1 {
             font-size: 2em;
         }
-        label {
-            display: block;
-            margin-top: 1em;
-        }
-        input[type="file"], input[type="text"] {
-            margin-top: 0.5em;
-            padding: 0.3em;
-        }
-        button {
-            margin-top: 1.5em;
-            padding: 0.5em 1em;
-        }
         .erreur {
             color: red;
-            margin-top: 1.5em;
+            font-weight: bold;
+            margin-top: 20px;
         }
     </style>
 </head>
@@ -34,18 +23,19 @@
 
     <form method="post" action="/analyse" enctype="multipart/form-data">
         <label for="fichier">Fichier Excel :</label>
-        <input type="file" name="fichier_excel" id="fichier" required>
+        <input type="file" name="fichier" id="fichier" required><br><br>
 
         <label for="article">Numéro d'article :</label>
-        <input type="text" name="numero_article" id="article" required>
+        <input type="text" name="article" id="article" required><br><br>
 
         <button type="submit">Analyser</button>
     </form>
 
     {% if erreur %}
-        <p class="erreur">Erreur de traitement : {{ erreur }}</p>
+        <div class="erreur">Erreur de traitement : {{ erreur }}</div>
     {% endif %}
 </body>
 </html>
+
 
 
