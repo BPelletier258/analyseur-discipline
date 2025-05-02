@@ -1,27 +1,24 @@
 import os
 import re
-import pandas as pd
 import unicodedata
+import pandas as pd
 from flask import Flask, request, render_template, jsonify
-from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-
-# Assurez-vous que ce dossier existe
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 def normalize_column(col_name):
     if isinstance(col_name, str):
         col_name = unicodedata.normalize('NFKD', col_name).encode('ASCII', 'ignore').decode('utf-8')
-        col_name = col_name.replace("’", "'").lower()
+        col_name = col_name.replace("’", "'")
+        col_name = col_name.lower()
         col_name = re.sub(r'\s+', ' ', col_name).strip()
     return col_name
 
 def analyse_article_articles_enfreints_only(df, article_number):
-    pattern_explicit = rf'\b[Aa]rt\.?\s*{re.escape(article_number)}\b'
+    pattern_explicit = rf'\b[Aa]rt\.?\s*{re.escape(article_number)}(\b|[^a-zA-Z0-9])'
     mask_articles_enfreints = df['articles enfreints'].astype(str).str.contains(
-        pattern_explicit, na=False, flags=re.IGNORECASE)
+        pattern_explicit, na=False, flags=re.IGNORECASE
+    )
     conformes = df[mask_articles_enfreints].copy()
     conformes['Statut'] = "Conforme"
 
@@ -38,27 +35,26 @@ def analyse_article_articles_enfreints_only(df, article_number):
     })
     return result
 
-@app.route("/", methods=["GET"])
-def home():
+def format_html_table(df, article_number):
+    return df.style.set_properties(
+        subset=[f'Articles enfreints (Art {article_number})'],
+        **{'color': 'red', 'font-weight': 'bold'}
+    ).to_html(escape=False)
+
+@app.route('/')
+def index():
     return render_template("index.html")
 
-@app.route("/analyse", methods=["POST"])
+@app.route('/analyse', methods=["POST"])
 def analyser():
     try:
-        if "fichier_excel" not in request.files or "numero_article" not in request.form:
-            raise ValueError("Formulaire incomplet.")
+        if "fichier" not in request.files or "article" not in request.form:
+            raise ValueError("Veuillez fournir un fichier et un numéro d'article.")
 
-        fichier = request.files["fichier_excel"]
-        article = request.form["numero_article"].strip()
+        file = request.files['fichier']
+        article = request.form['article'].strip()
 
-        if not fichier.filename:
-            raise ValueError("Aucun fichier fourni.")
-
-        filename = secure_filename(fichier.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        fichier.save(file_path)
-
-        df = pd.read_excel(file_path)
+        df = pd.read_excel(file)
         df = df.rename(columns=lambda c: normalize_column(c))
 
         required_cols = [
@@ -70,19 +66,21 @@ def analyser():
         ]
 
         if not all(col in df.columns for col in required_cols):
-            raise ValueError("Le fichier est incomplet. Merci de vérifier la structure.")
+            return render_template("index.html", erreur="Le fichier est incomplet. Merci de vérifier les colonnes requises.")
 
         resultats = analyse_article_articles_enfreints_only(df, article)
-        return resultats.to_html(index=False)
+        html_table = format_html_table(resultats, article)
+        return html_table
 
     except ValueError as ve:
-        return render_template("index.html", erreur=str(ve)), 400
+        return render_template("index.html", erreur=f"Erreur de traitement : {str(ve)}")
     except Exception as e:
-        return render_template("index.html", erreur=str(e))
+        return render_template("index.html", erreur=f"Erreur de traitement : {str(e)}")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
 
 
 
