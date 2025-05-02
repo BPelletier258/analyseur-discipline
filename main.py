@@ -15,7 +15,7 @@ def normalize_column(col_name):
     return col_name
 
 def analyse_article_articles_enfreints_only(df, article_number):
-    pattern_explicit = rf'\bArt\.?\s*{re.escape(article_number)}\b'
+    pattern_explicit = rf'\b[Aa]rt\.?\s*{re.escape(article_number)}\b'
     mask_articles_enfreints = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
     conformes = df[mask_articles_enfreints].copy()
     conformes['Statut'] = "Conforme"
