@@ -2,66 +2,25 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Résultats de l'analyse</title>
+    <title>Résultats - Article {{ article }}</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
-            background-color: #f9f9f9;
-        }
-        h1 {
-            text-align: center;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            background-color: white;
-        }
-        th, td {
-            padding: 12px;
-            border: 1px solid #ddd;
-            vertical-align: top;
-        }
-        th {
-            background-color: #f0f0f0;
-            text-align: left;
-        }
-        tr:nth-child(even) {
-            background-color: #fafafa;
-        }
-        .highlight {
-            font-weight: bold;
-            color: #d00000;
-        }
+        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f9f9f9; }
+        h1 { color: #222; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; background-color: #fff; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        a { display: inline-block; margin-top: 20px; text-decoration: none; color: #0066cc; }
     </style>
 </head>
 <body>
-    <h1>🔎 Résultats de l'analyse</h1>
-    <table>
-        <thead>
-            <tr>
-                <th>Statut</th>
-                <th>Numéro de décision</th>
-                <th>Nom de l’intimé</th>
-                <th>Articles enfreints</th>
-                <th>Durée de radiation</th>
-                <th>Amendes</th>
-                <th>Autres sanctions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in resultats %}
-            <tr>
-                <td>{{ row['Statut'] }}</td>
-                <td>{{ row['numero de decision'] }}</td>
-                <td>{{ row["nom de l'intime"] }}</td>
-                <td>{{ row['articles enfreints']|safe }}</td>
-                <td>{{ row['duree totale effective radiation'] }}</td>
-                <td>{{ row['article amende/chef'] }}</td>
-                <td>{{ row['autres sanctions'] }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <h1>📄 Résultats pour l'article {{ article }}</h1>
+
+    {% for table in tables %}
+        {{ table | safe }}
+    {% endfor %}
+
+    <a href="/">← Nouvelle recherche</a>
 </body>
+</html>
+
 </html>
