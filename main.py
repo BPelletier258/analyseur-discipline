@@ -1,6 +1,6 @@
 import os
-import pandas as pd
 import re
+import pandas as pd
 import unicodedata
 from flask import Flask, request, render_template, jsonify
 
@@ -19,8 +19,10 @@ def analyse_article_articles_enfreints_only(df, article_number):
     mask_articles_enfreints = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
     conformes = df[mask_articles_enfreints].copy()
     conformes['Statut'] = "Conforme"
+
     if conformes.empty:
         raise ValueError(f"Aucun intime trouvé pour l'article {article_number} demandé.")
+
     result = pd.DataFrame({
         'Nom de l’intime': conformes["nom de l'intime"],
         f'Articles enfreints (Art {article_number})': conformes['articles enfreints'],
@@ -31,42 +33,43 @@ def analyse_article_articles_enfreints_only(df, article_number):
     })
     return result
 
-@app.route("/", methods=["GET", "POST"])
+@app.route('/')
 def index():
-    if request.method == "POST":
-        try:
-            fichier = request.files.get("fichier_excel")
-            article = request.form.get("article")
+    return render_template('index.html')
 
-            if not fichier or not article:
-                return render_template("index.html", erreur="Veuillez fournir un fichier et un numéro d'article.")
+@app.route('/analyse/<article_number>', methods=['POST'])
+def analyse(article_number):
+    try:
+        fichier = request.files['fichier']
+        if not fichier:
+            return render_template('index.html', erreur="Aucun fichier soumis.")
 
-            df = pd.read_excel(fichier)
-            df = df.rename(columns=lambda c: normalize_column(c))
+        df = pd.read_excel(fichier)
+        df = df.rename(columns=lambda c: normalize_column(c))
 
-            required_cols = [
-                "articles enfreints",
-                "duree totale effective radiation",
-                "article amende/chef",
-                "autres sanctions",
-                "nom de l'intime"
-            ]
-            if not all(col in df.columns for col in required_cols):
-                return render_template("index.html", erreur="Le fichier est incomplet. Merci de vérifier la structure.")
+        required_cols = [
+            "articles enfreints",
+            "duree totale effective radiation",
+            "article amende/chef",
+            "autres sanctions",
+            "nom de l'intime"
+        ]
 
-            resultats = analyse_article_articles_enfreints_only(df, article)
-            return render_template("resultats.html", tables=[resultats.to_html(classes='table table-bordered')], article=article)
+        if not all(col in df.columns for col in required_cols):
+            return render_template('index.html', erreur="Le fichier est incomplet. Merci de vérifier la structure.")
 
-        except ValueError as ve:
-            return render_template("index.html", erreur=str(ve))
-        except Exception as e:
-            return render_template("index.html", erreur=str(e))
+        resultats = analyse_article_articles_enfreints_only(df, article_number)
+        return render_template('resultats.html', tables=[resultats.to_html(classes='data', index=False)], article=article_number)
 
-    return render_template("index.html")
+    except ValueError as ve:
+        return render_template('index.html', erreur=str(ve))
+    except Exception as e:
+        return render_template('index.html', erreur=str(e))
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=True)
+
 
 
 
