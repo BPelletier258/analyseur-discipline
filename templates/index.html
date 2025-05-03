@@ -6,46 +6,47 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            padding: 40px;
+            margin: 40px;
+            background-color: #fff;
+            color: #000;
         }
         h1 {
             font-size: 2em;
-            margin-bottom: 20px;
         }
-        .highlight {
+        label {
+            display: block;
+            margin-top: 20px;
             font-weight: bold;
-            color: red;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
+        input, button {
+            margin-top: 8px;
+            padding: 6px 12px;
+            font-size: 1em;
+        }
+        .error {
+            color: red;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        .resultat {
             margin-top: 30px;
         }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 15px;
+        }
         th, td {
-            border: 1px solid #aaa;
+            border: 1px solid #999;
             padding: 8px;
             text-align: left;
         }
         th {
-            background-color: #f0f0f0;
+            background-color: #eee;
         }
-        .error {
+        .highlight {
             color: red;
             font-weight: bold;
-            margin-top: 20px;
-        }
-        label {
-            font-weight: bold;
-        }
-        input[type="file"],
-        input[type="text"] {
-            padding: 6px;
-            margin-bottom: 12px;
-            margin-left: 10px;
-        }
-        button {
-            padding: 8px 14px;
-            font-size: 1em;
         }
     </style>
 </head>
@@ -58,7 +59,8 @@
         <input type="file" name="fichier" required><br><br>
 
         <label for="article">Numéro d'article :</label>
-        <input type="text" name="article" required>
+        <input type="text" name="article" required><br><br>
+
         <button type="submit">Analyser</button>
     </form>
 
@@ -67,37 +69,15 @@
     {% endif %}
 
     {% if resultats %}
-        <h2>Résultats</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>📄 Numéro de décision</th>
-                    <th>🧑‍⚖️ Nom de l’intimé</th>
-                    <th>🔹 Articles enfreints</th>
-                    <th>⏳ Périodes de radiation</th>
-                    <th>💵 Amendes</th>
-                    <th>📜 Autres sanctions</th>
-                    <th>📋 Statut</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in resultats %}
-                <tr>
-                    <td>{{ row["numero de decision"] }}</td>
-                    <td>{{ row["nom de l'intime"] }}</td>
-                    <td>{{ row["articles enfreints"]|safe }}</td>
-                    <td>{{ row["duree totale effective radiation"] }}</td>
-                    <td>{{ row["article amende/chef"] }}</td>
-                    <td>{{ row["autres sanctions"] }}</td>
-                    <td>{{ row["Statut"] }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="resultat">
+            <h2>📄 Résultats de l'analyse</h2>
+            {{ resultats | safe }}
+        </div>
     {% endif %}
 
 </body>
 </html>
+
 
 
 
