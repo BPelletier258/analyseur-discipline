@@ -1,48 +1,50 @@
-print(">>> Analyser lancé — version déployée le 3 mai 2025 ✅")
-from flask import Flask, request, render_template
 import pandas as pd
 import re
 import unicodedata
-from io import BytesIO
+from flask import Flask, render_template, request
 
 app = Flask(__name__)
 
 def normalize_column(col_name):
     if isinstance(col_name, str):
         col_name = unicodedata.normalize('NFKD', col_name).encode('ASCII', 'ignore').decode('utf-8')
-        col_name = col_name.replace("’", "'")
-        col_name = col_name.lower()
+        col_name = col_name.replace("’", "'").lower()
         col_name = re.sub(r'\s+', ' ', col_name).strip()
     return col_name
 
 def analyse_article_articles_enfreints_only(df, article_number):
     pattern_explicit = rf'\bArt\.?\s*{re.escape(article_number)}\b'
-    mask_articles_enfreints = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
+
+    mask_articles_enfreints = df['articles enfreints'].astype(str).str.contains(
+        pattern_explicit, na=False, flags=re.IGNORECASE
+    )
+
     conformes = df[mask_articles_enfreints].copy()
     conformes['Statut'] = "Conforme"
 
     if conformes.empty:
         raise ValueError(f"Aucun intime trouvé pour l'article {article_number} demandé.")
 
-    # Mise en gras + rouge de l’article détecté
-    def surligner_article(val):
+    def highlight_article(cell):
         return re.sub(
             pattern_explicit,
-            lambda m: f"<b style='color: red'>{m.group(0)}</b>",
-            str(val),
+            rf"<span style='color:red; font-weight:bold;'>Art. {article_number}</span>",
+            cell,
             flags=re.IGNORECASE
         )
 
-    conformes['articles enfreints'] = conformes['articles enfreints'].apply(surligner_article)
+    conformes['articles enfreints'] = conformes['articles enfreints'].astype(str).apply(highlight_article)
 
-    return pd.DataFrame({
-        "Nom de l’intime": conformes["nom de l'intime"],
-        f"Articles enfreints (Art {article_number})": conformes["articles enfreints"],
-        f"Périodes de radiation (Art {article_number})": conformes['duree totale effective radiation'],
-        f"Amendes (Art {article_number})": conformes['article amende/chef'],
-        f"Autres sanctions (Art {article_number})": conformes['autres sanctions'],
-        "Statut": conformes['Statut']
+    result = pd.DataFrame({
+        'Nom de l’intime': conformes["nom de l'intime"],
+        f'Articles enfreints (Art {article_number})': conformes['articles enfreints'],
+        f'Périodes de radiation (Art {article_number})': conformes['duree totale effective radiation'],
+        f'Amendes (Art {article_number})': conformes['article amende/chef'],
+        f'Autres sanctions (Art {article_number})': conformes['autres sanctions'],
+        'Statut': conformes['Statut']
     })
+
+    return result.to_html(index=False, escape=False)
 
 @app.route('/')
 def index():
@@ -52,36 +54,32 @@ def index():
 def analyser():
     try:
         fichier = request.files['fichier']
-        article = request.form['article'].strip()
-        
+        article = request.form['article']
         print(">>> Requête reçue avec article =", article)
-        print(">>> Analyseur lancé - version déployée le 3 mai 2025 ✅")
 
         df = pd.read_excel(fichier)
         df = df.rename(columns=lambda c: normalize_column(c))
 
-        required_columns = [
+        required = [
             "articles enfreints",
             "duree totale effective radiation",
             "article amende/chef",
             "autres sanctions",
             "nom de l'intime"
         ]
-        if not all(col in df.columns for col in required_columns):
+        if not all(col in df.columns for col in required):
             raise ValueError("Le fichier est incomplet. Merci de vérifier la structure.")
 
-        result = analyse_article_articles_enfreints_only(df, article)
-
-        return render_template('index.html', tables=[result.to_html(classes='data', index=False, escape=False)], article=article)
-
-    except ValueError as ve:
-        return render_template('index.html', erreur=str(ve), article=article if 'article' in locals() else "")
+        tableau_html = analyse_article_articles_enfreints_only(df, article)
+        return render_template('index.html', table=tableau_html, article=article)
 
     except Exception as e:
-        return render_template('index.html', erreur="Une erreur est survenue. Merci de réessayer.", article=article if 'article' in locals() else "")
+        return render_template('index.html', erreur=str(e))
 
 if __name__ == '__main__':
+    print(">>> Analyseur lancé – version déployée le 3 mai 2025 ✅")
     app.run(host='0.0.0.0', port=5000)
+
 
 
 
