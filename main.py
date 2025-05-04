@@ -50,20 +50,14 @@ def index():
 
 @app.route('/analyse', methods=['POST'])
 def analyser():
-    print(">>> Requête reçue avec article =", article)
     try:
-        print(">>> Analyseur lancé – version 3 mai 2025 ✅")  # ← Confirmation de version visible dans logs Render
-
-        if 'fichier' not in request.files or 'article' not in request.form:
-            raise ValueError("Veuillez fournir un fichier et un numéro d'article.")
-
         fichier = request.files['fichier']
         article = request.form['article'].strip()
+        
+        print(">>> Requête reçue avec article =", article)
+        print(">>> Analyseur lancé - version déployée le 3 mai 2025 ✅")
 
-        if not fichier or fichier.filename == '':
-            raise ValueError("Aucun fichier sélectionné.")
-
-        df = pd.read_excel(BytesIO(fichier.read()))
+        df = pd.read_excel(fichier)
         df = df.rename(columns=lambda c: normalize_column(c))
 
         required_columns = [
@@ -76,12 +70,15 @@ def analyser():
         if not all(col in df.columns for col in required_columns):
             raise ValueError("Le fichier est incomplet. Merci de vérifier la structure.")
 
-        resultats = analyse_article_articles_enfreints_only(df, article)
+        result = analyse_article_articles_enfreints_only(df, article)
 
-        return render_template("resultats.html", resultats=resultats.to_html(classes='table table-bordered table-striped', escape=False, index=False), erreur=None)
+        return render_template('index.html', tables=[result.to_html(classes='data', index=False, escape=False)], article=article)
+
+    except ValueError as ve:
+        return render_template('index.html', erreur=str(ve), article=article if 'article' in locals() else "")
 
     except Exception as e:
-        return render_template("index.html", erreur=str(e))
+        return render_template('index.html', erreur="Une erreur est survenue. Merci de réessayer.", article=article if 'article' in locals() else "")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
