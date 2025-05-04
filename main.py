@@ -1,3 +1,4 @@
+print(">>> Analyser lancé — version déployée le 3 mai 2025 ✅")
 from flask import Flask, request, render_template
 import pandas as pd
 import re
@@ -49,6 +50,7 @@ def index():
 
 @app.route('/analyse', methods=['POST'])
 def analyser():
+    print(">>> Requête reçue avec article =", article)
     try:
         print(">>> Analyseur lancé – version 3 mai 2025 ✅")  # ← Confirmation de version visible dans logs Render
 
