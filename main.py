@@ -1,8 +1,9 @@
-from flask import Flask, request, render_template
-import pandas as pd
-import unicodedata
+import os
 import re
-from datetime import datetime
+import unicodedata
+import pandas as pd
+from flask import Flask, request, render_template
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
@@ -15,7 +16,7 @@ def normalize_column(col_name):
     return col_name
 
 def analyse_article_articles_enfreints_only(df, article_number):
-    pattern_explicit = rf'\bArt\.\s*{re.escape(article_number)}\b'
+    pattern_explicit = rf'(?<!\w)[Aa]rt\.?\s*{re.escape(article_number)}(?!\w)'
     mask_articles_enfreints = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
     conformes = df[mask_articles_enfreints].copy()
     conformes['Statut'] = "Conforme"
@@ -23,28 +24,22 @@ def analyse_article_articles_enfreints_only(df, article_number):
     if conformes.empty:
         raise ValueError(f"Aucun intime trouvé pour l'article {article_number} demandé.")
 
-    # Mettre en gras rouge les correspondances
-    def highlight_article(cell):
-        if pd.isna(cell):
-            return cell
-        return re.sub(
-            pattern_explicit,
-            rf'<strong style="color:red">Art. {article_number}</strong>',
-            str(cell),
-            flags=re.IGNORECASE
-        )
+    conformes['articles enfreints'] = conformes['articles enfreints'].astype(str).str.replace(
+        pattern_explicit,
+        r'<span class="highlight">\g<0></span>',
+        flags=re.IGNORECASE,
+        regex=True
+    )
 
-    conformes['articles enfreints'] = conformes['articles enfreints'].apply(highlight_article)
-
-    result = pd.DataFrame({
-        'Nom de l’intime': conformes["nom de l'intime"],
-        f'Articles enfreints (Art {article_number})': conformes['articles enfreints'],
-        f'Périodes de radiation (Art {article_number})': conformes['duree totale effective radiation'],
-        f'Amendes (Art {article_number})': conformes['article amende/chef'],
-        f'Autres sanctions (Art {article_number})': conformes['autres sanctions'],
-        'Statut': conformes['Statut']
-    })
-    return result
+    return conformes[[
+        "numero de decision",
+        "nom de l'intime",
+        "articles enfreints",
+        "duree totale effective radiation",
+        "article amende/chef",
+        "autres sanctions",
+        "Statut"
+    ]]
 
 @app.route('/')
 def index():
@@ -53,35 +48,43 @@ def index():
 @app.route('/analyse', methods=['POST'])
 def analyser():
     try:
-        print(f"\n>>> Analyseur lancé - version 3 mai 2025")
-        article = request.form.get('article', '').strip()
-        print(f">>> Requête reçue avec article = {article}")
+        if 'fichier' not in request.files or 'article' not in request.form:
+            raise ValueError("Veuillez fournir un fichier et un numéro d'article.")
 
-        fichier = request.files.get('fichier')
-        if not fichier:
-            raise ValueError("Aucun fichier Excel fourni.")
+        fichier = request.files['fichier']
+        article = request.form['article'].strip()
+
+        if fichier.filename == '':
+            raise ValueError("Aucun fichier sélectionné.")
 
         df = pd.read_excel(fichier)
-        df = df.rename(columns=lambda c: normalize_column(c))
+        df.columns = [normalize_column(c) for c in df.columns]
 
-        required_columns = [
+        required_cols = [
+            "numero de decision",
             "articles enfreints",
             "duree totale effective radiation",
             "article amende/chef",
             "autres sanctions",
             "nom de l'intime"
         ]
-        if not all(col in df.columns for col in required_columns):
-            raise ValueError("Le fichier est incomplet. Merci de vérifier la structure.")
 
-        tableau = analyse_article_articles_enfreints_only(df, article)
-        return render_template('index.html', tables=[tableau.to_html(classes='table table-bordered table-striped', escape=False, index=False)], article=article)
+        if not all(col in df.columns for col in required_cols):
+            raise ValueError("Le fichier est incomplet. La colonne 'Numéro de décision' est requise.")
 
+        resultats = analyse_article_articles_enfreints_only(df, article)
+        html_table = resultats.to_dict(orient='records')
+        return render_template('index.html', resultats=html_table)
+
+    except ValueError as ve:
+        return render_template('index.html', erreur=str(ve))
     except Exception as e:
         return render_template('index.html', erreur=str(e))
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
 
 
 
