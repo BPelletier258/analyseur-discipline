@@ -19,8 +19,7 @@ def surligner_article(texte, article):
         return ""
     try:
         article_regex = re.escape(article)
-        # Tolère ponctuation ou espace après l'article, sans exiger fin stricte
-        pattern = rf'(Art\.?\s*{article_regex})(?=[\s\W]|$)'
+        pattern = rf'(Art\.\s*{article_regex})(?=[\s\W]|$)'
         return re.sub(pattern, r'<span class="rouge">\1</span>', str(texte), flags=re.IGNORECASE)
     except Exception:
         return str(texte)
@@ -47,14 +46,13 @@ def analyser():
         if not all(col in df.columns for col in required_columns):
             raise ValueError("Le fichier est incomplet. Merci de vérifier la structure.")
 
-        pattern_explicit = rf'Art\.?\s*{re.escape(article)}(?=[\s\W]|$)'
+        pattern_explicit = rf'Art\.\s*{re.escape(article)}(?=[\s\W]|$)'
         mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
         conformes = df[mask].copy()
 
         if conformes.empty:
             raise ValueError(f"Aucun intime trouvé pour l'article {article} demandé.")
 
-        # Application du surlignement à toutes les colonnes pertinentes
         colonnes_a_surligner = {
             'Articles enfreints': 'articles enfreints',
             'Périodes de radiation': 'duree totale effective radiation',
@@ -62,7 +60,7 @@ def analyser():
             'Autres sanctions': 'autres sanctions'
         }
         for nouvelle_col, source_col in colonnes_a_surligner.items():
-            conformes[nouvelle_col] = conformes[source_col].apply(lambda x: surligner_article(x, article))
+            conformes[nouvelle_col] = conformes[source_col].astype(str).apply(lambda x: surligner_article(x, article))
 
         conformes['Nom de l’intime'] = conformes["nom de l'intime"]
         conformes['Statut'] = "Conforme"
@@ -77,6 +75,7 @@ def analyser():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
 
 
 
