@@ -6,64 +6,99 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 2rem;
-            background-color: #f9f9f9;
+            background-color: #fafafa;
+            padding: 40px;
         }
-        .container {
-            max-width: 1000px;
-            margin: auto;
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 0 12px rgba(0,0,0,0.1);
-        }
+
         h1 {
-            font-size: 2rem;
+            font-size: 2.2em;
+            margin-bottom: 20px;
         }
+
+        .formulaire {
+            margin-bottom: 30px;
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        input[type="file"],
+        input[type="text"] {
+            margin: 10px 0;
+            padding: 8px;
+            width: 300px;
+        }
+
+        button {
+            padding: 8px 16px;
+            font-weight: bold;
+            background-color: black;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+
         .rouge {
             font-weight: bold;
             color: red;
         }
-        table {
+
+        .table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 1.5rem;
+            margin-top: 25px;
         }
-        th, td {
-            border: 1px solid #ccc;
-            padding: 0.6rem;
+
+        .table th, .table td {
+            border: 1px solid #ddd;
+            padding: 10px;
             text-align: left;
         }
-        th {
-            background-color: #f0f0f0;
+
+        .table th {
+            background-color: #f2f2f2;
         }
-        .error {
+
+        .erreur {
             color: red;
             font-weight: bold;
-            margin-top: 1rem;
+            margin-top: 20px;
         }
+
+        .resultat-titre {
+            font-size: 1.4em;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔍 Recherche d'article disciplinaire</h1>
-        <form action="/analyse" method="post" enctype="multipart/form-data">
-            <p><strong>Fichier Excel :</strong> <input type="file" name="fichier" required></p>
-            <p><strong>Numéro d'article :</strong> <input type="text" name="article" placeholder="ex: 14 ou 59(2)" required></p>
-            <button type="submit">Analyser</button>
-        </form>
+    <h1>🔍 Recherche d'article disciplinaire</h1>
 
-        {% if erreur %}
-            <p class="error">Erreur de traitement : {{ erreur }}</p>
-        {% endif %}
+    <form method="post" enctype="multipart/form-data" action="/analyse" class="formulaire">
+        <label for="fichier">Fichier Excel :</label><br>
+        <input type="file" name="fichier" required><br><br>
 
-        {% if tableau_html %}
-            <h2>Résultats pour l'article {{ article }}</h2>
-            {{ tableau_html | safe }}
-        {% endif %}
-    </div>
+        <label for="article">Numéro d'article :</label><br>
+        <input type="text" name="article" placeholder="ex: 14 ou 59(2)" required><br><br>
+
+        <button type="submit">Analyser</button>
+    </form>
+
+    {% if erreur %}
+        <div class="erreur">Erreur de traitement : {{ erreur }}</div>
+    {% endif %}
+
+    {% if tableau_html %}
+        <div class="resultat-titre">Résultats pour l'article {{ article }}</div>
+        {{ tableau_html|safe }}
+    {% endif %}
+
 </body>
 </html>
+
 
 
 
