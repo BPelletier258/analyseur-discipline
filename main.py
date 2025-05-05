@@ -19,7 +19,6 @@ def surligner_article(texte, article):
         return ""
     try:
         article_regex = re.escape(article)
-        # Permet de capturer l'article suivi de caractères spéciaux, ex: Art. 59(2) ou Art. 2.01 a)
         pattern = rf'(Art\.?\s*{article_regex}(?!\w))'
         return re.sub(pattern, r'<span class="rouge">\1</span>', str(texte), flags=re.IGNORECASE)
     except Exception:
@@ -54,14 +53,20 @@ def analyser():
         if conformes.empty:
             raise ValueError(f"Aucun intime trouvé pour l'article {article} demandé.")
 
-        conformes['Articles enfreints'] = conformes['articles enfreints'].apply(lambda x: surligner_article(x, article))
-        conformes['Périodes de radiation'] = conformes['duree totale effective radiation'].apply(lambda x: surligner_article(x, article))
-        conformes['Amendes'] = conformes['article amende/chef'].apply(lambda x: surligner_article(x, article))
-        conformes['Autres sanctions'] = conformes['autres sanctions'].apply(lambda x: surligner_article(x, article))
+        # Application du surlignement à toutes les colonnes pertinentes
+        colonnes_a_surligner = {
+            'Articles enfreints': 'articles enfreints',
+            'Périodes de radiation': 'duree totale effective radiation',
+            'Amendes': 'article amende/chef',
+            'Autres sanctions': 'autres sanctions'
+        }
+        for nouvelle_col, source_col in colonnes_a_surligner.items():
+            conformes[nouvelle_col] = conformes[source_col].apply(lambda x: surligner_article(x, article))
+
         conformes['Nom de l’intime'] = conformes["nom de l'intime"]
         conformes['Statut'] = "Conforme"
 
-        colonnes = ['Nom de l’intime', 'Articles enfreints', 'Périodes de radiation', 'Amendes', 'Autres sanctions', 'Statut']
+        colonnes = ['Nom de l’intime'] + list(colonnes_a_surligner.keys()) + ['Statut']
         tableau_html = conformes[colonnes].to_html(classes='table table-striped', escape=False, index=False)
 
         return render_template("index.html", tableau_html=tableau_html, article=article)
@@ -71,6 +76,7 @@ def analyser():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
 
 
 
