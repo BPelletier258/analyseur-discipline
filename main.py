@@ -42,7 +42,7 @@ def analyser():
         if not all(col in df.columns for col in required_columns):
             raise ValueError("Le fichier est incomplet. Merci de verifier la structure.")
 
-        pattern_explicit = rf'\bArt\.?\s*{re.escape(article)}\b'
+        pattern_explicit = rf'\bArt\.?\s*{re.escape(article)}(?=\b|[^a-zA-Z0-9])'
         mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
         conformes = df[mask].copy()
 
