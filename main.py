@@ -19,7 +19,8 @@ def surligner_article(texte, article):
         return ""
     try:
         article_regex = re.escape(article)
-        pattern = rf'(Art\.?\s*{article_regex}(?!\w))'
+        # Tolère ponctuation ou espace après l'article, sans exiger fin stricte
+        pattern = rf'(Art\.?\s*{article_regex})(?=[\s\W]|$)'
         return re.sub(pattern, r'<span class="rouge">\1</span>', str(texte), flags=re.IGNORECASE)
     except Exception:
         return str(texte)
@@ -46,7 +47,7 @@ def analyser():
         if not all(col in df.columns for col in required_columns):
             raise ValueError("Le fichier est incomplet. Merci de vérifier la structure.")
 
-        pattern_explicit = rf'Art\.?\s*{re.escape(article)}(?!\w)'
+        pattern_explicit = rf'Art\.?\s*{re.escape(article)}(?=[\s\W]|$)'
         mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
         conformes = df[mask].copy()
 
@@ -76,6 +77,7 @@ def analyser():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
 
 
 
