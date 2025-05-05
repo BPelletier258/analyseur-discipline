@@ -1,4 +1,4 @@
-import pandas as pd
+""import pandas as pd
 import re
 import unicodedata
 from flask import Flask, render_template, request
@@ -17,8 +17,12 @@ def normalize_column(col_name):
 def surligner_article(texte, article):
     if pd.isna(texte):
         return ""
-    pattern = re.escape(article)
-    return re.sub(rf'\b(Art\.?\s*{pattern})\b', r'<span class="rouge">\1</span>', str(texte), flags=re.IGNORECASE)
+    try:
+        article_regex = re.escape(article)
+        pattern = rf'\b(Art\.?\s*{article_regex})\b'
+        return re.sub(pattern, r'<span class="rouge">\1</span>', str(texte), flags=re.IGNORECASE)
+    except Exception:
+        return str(texte)
 
 # --- Route principale ---
 @app.route('/', methods=['GET'])
@@ -30,7 +34,7 @@ def analyser():
     try:
         fichier = request.files['fichier']
         article = request.form['article'].strip()
-        print(f">>> Requete recue avec article = {article}")
+        print(f">>> Requête reçue avec article = {article}")
 
         df = pd.read_excel(fichier)
         df = df.rename(columns=lambda c: normalize_column(c))
@@ -40,9 +44,9 @@ def analyser():
             "article amende/chef", "autres sanctions", "nom de l'intime"
         ]
         if not all(col in df.columns for col in required_columns):
-            raise ValueError("Le fichier est incomplet. Merci de verifier la structure.")
+            raise ValueError("Le fichier est incomplet. Merci de vérifier la structure.")
 
-        pattern_explicit = rf'\bArt\.?\s*{re.escape(article)}(?=\b|[^a-zA-Z0-9])'
+        pattern_explicit = rf'\bArt\.?\s*{re.escape(article)}\b'
         mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
         conformes = df[mask].copy()
 
@@ -66,6 +70,7 @@ def analyser():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
 
 
 
