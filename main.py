@@ -19,7 +19,7 @@ def surligner_article(texte, article):
         return ""
     try:
         article_regex = re.escape(article)
-        pattern = rf'(Art\.\s*{article_regex})(?=[\s\W]|$)'
+        pattern = rf'(Art[\.:]?\s*{article_regex})(?=[\s\W]|$)'
         return re.sub(pattern, r'<span class="rouge">\1</span>', str(texte), flags=re.IGNORECASE)
     except Exception:
         return str(texte)
@@ -34,19 +34,20 @@ def analyser():
     try:
         fichier = request.files['fichier']
         article = request.form['article'].strip()
-        print(f">>> Requête reçue avec article = {article}")
+        print(f">>> Requête reçue avec article = {article} (test 3 mai)")
 
         df = pd.read_excel(fichier)
         df = df.rename(columns=lambda c: normalize_column(c))
 
         required_columns = [
             "articles enfreints", "duree totale effective radiation",
-            "article amende/chef", "autres sanctions", "nom de l'intime"
+            "article amende/chef", "autres sanctions",
+            "nom de l'intime", "numero de decision"
         ]
         if not all(col in df.columns for col in required_columns):
             raise ValueError("Le fichier est incomplet. Merci de vérifier la structure.")
 
-        pattern_explicit = rf'Art\.\s*{re.escape(article)}(?=[\s\W]|$)'
+        pattern_explicit = rf'Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)'
         mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
         conformes = df[mask].copy()
 
@@ -62,10 +63,11 @@ def analyser():
         for nouvelle_col, source_col in colonnes_a_surligner.items():
             conformes[nouvelle_col] = conformes[source_col].astype(str).apply(lambda x: surligner_article(x, article))
 
+        conformes['Numéro de décision'] = conformes['numero de decision']
         conformes['Nom de l’intime'] = conformes["nom de l'intime"]
         conformes['Statut'] = "Conforme"
 
-        colonnes = ['Nom de l’intime'] + list(colonnes_a_surligner.keys()) + ['Statut']
+        colonnes = ['Statut', 'Numéro de décision', 'Nom de l’intime'] + list(colonnes_a_surligner.keys())
         tableau_html = conformes[colonnes].to_html(classes='table table-striped', escape=False, index=False)
 
         return render_template("index.html", tableau_html=tableau_html, article=article)
@@ -75,6 +77,7 @@ def analyser():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
 
 
 
