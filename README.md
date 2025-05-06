@@ -38,4 +38,20 @@ L'application peut être déployée sur [Render.com](https://render.com) ou exé
 
 ```bash
 python main.py
+### Dépendances (voir `requirements.txt`)
+
+- Flask
+- pandas
+- openpyxl
+
+## 📬 Utilisation de l’interface
+
+1. Uploade un fichier Excel valide.
+2. Entre un article (ex: `14`, `59(2)`, `2.01 a)`).
+3. Clique sur **Analyser**.
+4. Le tableau HTML s’affiche avec les résultats filtrés.
+
+## 🧠 Auteurs et crédits
+
+Assistant GPT + Collaboration utilisateur – 2025
 
