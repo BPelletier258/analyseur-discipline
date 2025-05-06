@@ -67,9 +67,13 @@ def analyser():
         conformes['Nom de l’intime'] = conformes["nom de l'intime"]
         conformes['Statut'] = "Conforme"
 
-        colonnes = ['Statut', 'Numéro de décision', 'Nom de l’intime'] + list(colonnes_a_surligner.keys())
-        tableau_html = conformes[colonnes].to_html(classes='table table-striped', escape=False, index=False)
+        if 'resume' in df.columns:
+            conformes['Résumé'] = conformes['resume'].apply(lambda url: f'<a href="{url}" target="_blank">Résumé</a>' if pd.notna(url) else '')
+            colonnes = ['Statut', 'Numéro de décision', 'Nom de l’intime'] + list(colonnes_a_surligner.keys()) + ['Résumé']
+        else:
+            colonnes = ['Statut', 'Numéro de décision', 'Nom de l’intime'] + list(colonnes_a_surligner.keys())
 
+        tableau_html = conformes[colonnes].to_html(classes='table table-striped', escape=False, index=False)
         return render_template("index.html", tableau_html=tableau_html, article=article)
 
     except Exception as e:
@@ -77,6 +81,7 @@ def analyser():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
 
 
 
