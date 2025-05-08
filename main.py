@@ -44,8 +44,7 @@ def build_markdown_table(df, article):
 
     header_row = "| " + " | ".join(headers) + " |"
     separator = "|" + " --- |" * len(headers)
-    style_block = "\n<style>table { line-height: 1.5; }</style>\n"
-    return style_block + "\n" + "\n".join([header_row, separator] + rows)
+    return "\n" + "\n".join([header_row, separator] + rows) + "\n"
 
 def build_excel_result(df, article):
     output = BytesIO()
@@ -66,6 +65,7 @@ def build_excel_result(df, article):
         'duree totale effective radiation', 'article amende/chef', 'autres sanctions', 'resume'
     ]
     df_copy = df_copy[ordered_columns]
+    df_copy = df_copy.dropna(how='all')
 
     for r in dataframe_to_rows(df_copy, index=False, header=True):
         ws.append(r)
@@ -145,6 +145,7 @@ def telecharger_excel():
         return send_file(output, download_name="resultat.xlsx", as_attachment=True)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 
 
