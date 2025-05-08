@@ -1,8 +1,13 @@
+from flask import Flask, request, jsonify, send_file
 import pandas as pd
 import re
 import unicodedata
 from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.styles import Font, Alignment, PatternFill
 
+app = Flask(__name__)
 
 def normalize_column(col_name):
     if isinstance(col_name, str):
@@ -12,11 +17,9 @@ def normalize_column(col_name):
         col_name = re.sub(r'\s+', ' ', col_name)
     return col_name
 
-
 def highlight_article(text, article):
     pattern = rf'(Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$))'
     return re.sub(pattern, r'**\1**', text, flags=re.IGNORECASE)
-
 
 def build_markdown_table(df, article):
     headers = ["Statut", "Numéro de décision", "Nom de l'intime", "Articles enfreints",
@@ -41,20 +44,13 @@ def build_markdown_table(df, article):
     separator = "|" + " --- |" * len(headers)
     return "\n".join([header_row, separator] + rows)
 
-
 def build_excel_result(df, article):
-    from openpyxl import Workbook
-    from openpyxl.utils.dataframe import dataframe_to_rows
-    from openpyxl.styles import Font, Alignment, PatternFill
-
     output = BytesIO()
     wb = Workbook()
     ws = wb.active
     ws.title = "Résultats"
 
     df_copy = df.copy()
-
-    # Préparer les liens
     for i, row in df_copy.iterrows():
         lien = row.get('resume', '')
         if pd.notna(lien) and lien:
@@ -62,7 +58,6 @@ def build_excel_result(df, article):
         else:
             df_copy.at[i, 'resume'] = ''
 
-    # Réorganiser les colonnes
     ordered_columns = [
         'statut', 'numero de decision', "nom de l'intime", 'articles enfreints',
         'duree totale effective radiation', 'article amende/chef', 'autres sanctions', 'resume'
@@ -72,14 +67,12 @@ def build_excel_result(df, article):
     for r in dataframe_to_rows(df_copy, index=False, header=True):
         ws.append(r)
 
-    # Style de l'en-tête
     header_font = Font(bold=True)
     fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
     for cell in ws[1]:
         cell.font = header_font
         cell.fill = fill
 
-    # Appliquer style général
     for row in ws.iter_rows():
         for cell in row:
             cell.alignment = Alignment(wrap_text=True)
@@ -91,7 +84,6 @@ def build_excel_result(df, article):
     wb.save(output)
     output.seek(0)
     return output
-
 
 def analyse_article(df, article):
     required_cols = [
@@ -111,6 +103,46 @@ def analyse_article(df, article):
 
     result['statut'] = 'Conforme'
     return result
+
+@app.route('/')
+def home():
+    return "Bienvenue sur l'Analyseur de décisions disciplinaires."
+
+@app.route('/analyser', methods=['POST'])
+def analyser():
+    if 'file' not in request.files or 'article' not in request.form:
+        return jsonify({"error": "Fichier ou article manquant."}), 400
+
+    file = request.files['file']
+    article = request.form['article']
+
+    try:
+        df = pd.read_excel(file)
+        df.columns = [normalize_column(c) for c in df.columns]
+        result = analyse_article(df, article)
+        markdown = build_markdown_table(result, article)
+        excel_file = build_excel_result(result, article)
+        return jsonify({"markdown": markdown})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/telecharger_excel', methods=['POST'])
+def telecharger_excel():
+    if 'file' not in request.files or 'article' not in request.form:
+        return jsonify({"error": "Fichier ou article manquant."}), 400
+
+    file = request.files['file']
+    article = request.form['article']
+
+    try:
+        df = pd.read_excel(file)
+        df.columns = [normalize_column(c) for c in df.columns]
+        result = analyse_article(df, article)
+        output = build_excel_result(result, article)
+        return send_file(output, download_name="resultat.xlsx", as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 ```
 
