@@ -1,86 +1,118 @@
 import pandas as pd
 import re
 import unicodedata
-from flask import Flask, render_template, request
+from io import BytesIO
 
-app = Flask(__name__)
+def normalize\_column(col\_name):
+if isinstance(col\_name, str):
+col\_name = unicodedata.normalize('NFKD', col\_name).encode('ASCII', 'ignore').decode('utf-8')
+col\_name = col\_name.lower().strip()
+col\_name = col\_name.replace("’", "'")
+col\_name = re.sub(r'\s+', ' ', col\_name)
+return col\_name
 
-# --- Utilitaires ---
-def normalize_column(col_name):
-    if isinstance(col_name, str):
-        col_name = unicodedata.normalize('NFKD', col_name).encode('ASCII', 'ignore').decode('utf-8')
-        col_name = col_name.replace("’", "'")
-        col_name = col_name.lower()
-        col_name = re.sub(r'\s+', ' ', col_name).strip()
-    return col_name
+def highlight\_article(text, article):
+pattern = rf'(Art\[.:]?\s\*{re.escape(article)}(?=\[\s\W]|\$))'
+return re.sub(pattern, r'**\1**', text, flags=re.IGNORECASE)
 
-def surligner_article(texte, article):
-    if pd.isna(texte):
-        return ""
-    try:
-        article_regex = re.escape(article)
-        pattern = rf'(Art[\.:]?\s*{article_regex})(?=[\s\W]|$)'
-        return re.sub(pattern, r'<span class="rouge">\1</span>', str(texte), flags=re.IGNORECASE)
-    except Exception:
-        return str(texte)
+def build\_markdown\_table(df, article):
+headers = \["Statut", "Numéro de décision", "Nom de l'intime", "Articles enfreints",
+"Périodes de radiation", "Amendes", "Autres sanctions", "Résumé"]
+rows = \[]
+for \_, row in df.iterrows():
+resume\_link = row\.get('resume', '')
+resume\_md = f"[Résumé]({resume_link})" if pd.notna(resume\_link) and resume\_link else ""
+ligne = \[
+str(row\.get("statut", "")),
+str(row\.get("numero de decision", "")),
+str(row\.get("nom de l'intime", "")),
+highlight\_article(str(row\.get("articles enfreints", "")), article),
+highlight\_article(str(row\.get("duree totale effective radiation", "")), article),
+highlight\_article(str(row\.get("article amende/chef", "")), article),
+highlight\_article(str(row\.get("autres sanctions", "")), article),
+resume\_md
+]
+rows.append("| " + " | ".join(ligne) + " |")
 
-# --- Route principale ---
-@app.route('/', methods=['GET'])
-def index():
-    return render_template("index.html")
+```
+header_row = "| " + " | ".join(headers) + " |"
+separator = "|" + " --- |" * len(headers)
+return "\n".join([header_row, separator] + rows)
+```
 
-@app.route('/analyse', methods=['POST'])
-def analyser():
-    try:
-        fichier = request.files['fichier']
-        article = request.form['article'].strip()
-        print(f">>> Requête reçue avec article = {article} (test 3 mai)")
+def build\_excel\_result(df, article):
+from openpyxl import Workbook
+from openpyxl.utils.dataframe import dataframe\_to\_rows
+from openpyxl.styles import Font, Alignment, PatternFill
 
-        df = pd.read_excel(fichier)
-        df = df.rename(columns=lambda c: normalize_column(c))
+```
+output = BytesIO()
+wb = Workbook()
+ws = wb.active
+ws.title = "Résultats"
 
-        required_columns = [
-            "articles enfreints", "duree totale effective radiation",
-            "article amende/chef", "autres sanctions",
-            "nom de l'intime", "numero de decision"
-        ]
-        if not all(col in df.columns for col in required_columns):
-            raise ValueError("Le fichier est incomplet. Merci de vérifier la structure.")
+df_copy = df.copy()
 
-        pattern_explicit = rf'Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)'
-        mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
-        conformes = df[mask].copy()
+# Préparer les liens
+for i, row in df_copy.iterrows():
+    lien = row.get('resume', '')
+    if pd.notna(lien) and lien:
+        df_copy.at[i, 'resume'] = f'=HYPERLINK("{lien}", "Résumé")'
+    else:
+        df_copy.at[i, 'resume'] = ''
 
-        if conformes.empty:
-            raise ValueError(f"Aucun intime trouvé pour l'article {article} demandé.")
+# Réorganiser les colonnes
+ordered_columns = [
+    'statut', 'numero de decision', "nom de l'intime", 'articles enfreints',
+    'duree totale effective radiation', 'article amende/chef', 'autres sanctions', 'resume'
+]
+df_copy = df_copy[ordered_columns]
 
-        colonnes_a_surligner = {
-            'Articles enfreints': 'articles enfreints',
-            'Périodes de radiation': 'duree totale effective radiation',
-            'Amendes': 'article amende/chef',
-            'Autres sanctions': 'autres sanctions'
-        }
-        for nouvelle_col, source_col in colonnes_a_surligner.items():
-            conformes[nouvelle_col] = conformes[source_col].astype(str).apply(lambda x: surligner_article(x, article))
+for r in dataframe_to_rows(df_copy, index=False, header=True):
+    ws.append(r)
 
-        conformes['Numéro de décision'] = conformes['numero de decision']
-        conformes['Nom de l’intime'] = conformes["nom de l'intime"]
-        conformes['Statut'] = "Conforme"
+# Style de l'en-tête
+header_font = Font(bold=True)
+fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+for cell in ws[1]:
+    cell.font = header_font
+    cell.fill = fill
 
-        if 'resume' in df.columns:
-            conformes['Résumé'] = conformes['resume'].apply(lambda url: f'<a href="{url}" target="_blank">Résumé</a>' if pd.notna(url) else '')
-            colonnes = ['Statut', 'Numéro de décision', 'Nom de l’intime'] + list(colonnes_a_surligner.keys()) + ['Résumé']
-        else:
-            colonnes = ['Statut', 'Numéro de décision', 'Nom de l’intime'] + list(colonnes_a_surligner.keys())
+# Appliquer style général
+for row in ws.iter_rows():
+    for cell in row:
+        cell.alignment = Alignment(wrap_text=True)
 
-        tableau_html = conformes[colonnes].to_html(classes='table table-striped', escape=False, index=False)
-        return render_template("index.html", tableau_html=tableau_html, article=article)
+for col in ws.columns:
+    col_letter = col[0].column_letter
+    ws.column_dimensions[col_letter].width = 30
 
-    except Exception as e:
-        return render_template("index.html", erreur=str(e))
+wb.save(output)
+output.seek(0)
+return output
+```
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+def analyse\_article(df, article):
+required\_cols = \[
+'articles enfreints', 'duree totale effective radiation', 'article amende/chef',
+'autres sanctions', "nom de l'intime", 'numero de decision'
+]
+for col in required\_cols:
+if col not in df.columns:
+raise ValueError("Erreur : Le fichier est incomplet. Merci de vérifier la structure.")
+
+```
+pattern_explicit = rf'Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)'
+mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
+result = df[mask].copy()
+
+if result.empty:
+    raise ValueError(f"Erreur : Aucun intime trouvé pour l'article {article} demandé.")
+
+result['statut'] = 'Conforme'
+return result
+```
+
 
 
 
