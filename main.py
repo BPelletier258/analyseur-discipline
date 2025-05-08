@@ -22,12 +22,14 @@ def highlight_article(text, article):
     return re.sub(pattern, r'**\1**', text, flags=re.IGNORECASE)
 
 def build_markdown_table(df, article):
-    headers = ["Statut", "Numéro de décision", "Nom de l'intime", "Articles enfreints",
-               "Périodes de radiation", "Amendes", "Autres sanctions", "Résumé"]
+    headers = [
+        "Statut", "Numéro de décision", "Nom de l’intime", "Articles enfreints",
+        "Périodes de radiation", "Amendes", "Autres sanctions", "Résumé"
+    ]
     rows = []
     for _, row in df.iterrows():
         resume_link = row.get('resume', '')
-        resume_md = f"[Résumé]({resume_link})" if pd.notna(resume_link) and resume_link else ""
+        resume_md = f"[Résumé]({resume_link})" if pd.notna(resume_link) and resume_link.startswith("http") else ""
         ligne = [
             str(row.get("statut", "")),
             str(row.get("numero de decision", "")),
@@ -142,6 +144,7 @@ def telecharger_excel():
         return send_file(output, download_name="resultat.xlsx", as_attachment=True)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 
 
