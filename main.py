@@ -44,7 +44,8 @@ def build_markdown_table(df, article):
 
     header_row = "| " + " | ".join(headers) + " |"
     separator = "|" + " --- |" * len(headers)
-    return "\n".join([header_row, separator] + rows)
+    style_block = "\n<style>table { line-height: 1.5; }</style>\n"
+    return style_block + "\n" + "\n".join([header_row, separator] + rows)
 
 def build_excel_result(df, article):
     output = BytesIO()
@@ -144,6 +145,7 @@ def telecharger_excel():
         return send_file(output, download_name="resultat.xlsx", as_attachment=True)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 
 
