@@ -17,6 +17,10 @@ UPLOAD\_FOLDER = 'uploads'
 os.makedirs(UPLOAD\_FOLDER, exist\_ok=True)
 app.config\['UPLOAD\_FOLDER'] = UPLOAD\_FOLDER
 
+@app.route('/')
+def accueil():
+return render\_template('index.html')
+
 def normalize\_column(col\_name):
 if isinstance(col\_name, str):
 col\_name = unicodedata.normalize('NFKD', col\_name).encode('ASCII', 'ignore').decode('utf-8')
@@ -56,7 +60,7 @@ rows.append("| " + " | ".join(ligne) + " |")
 ```
 header_row = "| " + " | ".join(headers) + " |"
 separator = "|" + " --- |" * len(headers)
-return "\n".join([header_row, separator] + rows)
+return "\n\n".join([header_row, separator] + rows)
 ```
 
 def build\_excel\_result(df, article):
@@ -72,7 +76,6 @@ ws.title = "Résultats"
 
 df_copy = df.copy()
 
-# Préparer les liens
 for i, row in df_copy.iterrows():
     lien = row.get('resume', '')
     if pd.notna(lien) and lien:
@@ -132,6 +135,7 @@ if result.empty:
 result['statut'] = 'Conforme'
 return result
 ```
+
 
 
 
