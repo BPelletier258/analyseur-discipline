@@ -7,7 +7,7 @@ import re
 import unicodedata
 from io import BytesIO
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, send\_file, flash, redirect, render\_template
+from flask import Flask, request, jsonify, send_file, flash, redirect, render_template
 from werkzeug.utils import secure\_filename
 import os
 
