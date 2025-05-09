@@ -17,10 +17,6 @@ UPLOAD\_FOLDER = 'uploads'
 os.makedirs(UPLOAD\_FOLDER, exist\_ok=True)
 app.config\['UPLOAD\_FOLDER'] = UPLOAD\_FOLDER
 
-@app.route('/')
-def accueil():
-return render\_template('index.html')
-
 def normalize\_column(col\_name):
 if isinstance(col\_name, str):
 col\_name = unicodedata.normalize('NFKD', col\_name).encode('ASCII', 'ignore').decode('utf-8')
@@ -60,7 +56,7 @@ rows.append("| " + " | ".join(ligne) + " |")
 ```
 header_row = "| " + " | ".join(headers) + " |"
 separator = "|" + " --- |" * len(headers)
-return "\n\n".join([header_row, separator] + rows)
+return "\n".join([header_row, separator] + rows)
 ```
 
 def build\_excel\_result(df, article):
@@ -75,7 +71,6 @@ ws = wb.active
 ws.title = "Résultats"
 
 df_copy = df.copy()
-
 for i, row in df_copy.iterrows():
     lien = row.get('resume', '')
     if pd.notna(lien) and lien:
@@ -88,7 +83,6 @@ ordered_columns = [
     'duree totale effective radiation', 'article amende/chef', 'autres sanctions', 'resume'
 ]
 df_copy = df_copy[ordered_columns]
-
 df_copy = df_copy.dropna(how='all')
 for col in df_copy.columns:
     df_copy[col] = df_copy[col].apply(remove_html_tags)
@@ -135,6 +129,63 @@ if result.empty:
 result['statut'] = 'Conforme'
 return result
 ```
+
+@app.route('/')
+def home():
+return render\_template('index.html')
+
+@app.route('/analyse', methods=\['POST'])
+def analyse():
+article = request.form.get("article")
+fichier = request.files.get("file")
+
+```
+if not article or not fichier:
+    flash("Veuillez fournir un article et un fichier Excel.")
+    return redirect('/')
+
+try:
+    df = pd.read_excel(fichier)
+    df = df.rename(columns=lambda c: normalize_column(c))
+    result = analyse_article(df, article)
+
+    markdown = build_markdown_table(result, article)
+    excel_bytes = build_excel_result(result, article)
+
+    markdown_html = f"""
+    <html><head>
+    <style>
+    body {{ font-family: Arial; line-height: 1.6; }}
+    table {{ border-collapse: collapse; width: 100%; }}
+    td, th {{ border: 1px solid #ccc; padding: 8px; }}
+    </style>
+    </head><body>
+    <h2>Tableau des sanctions pour l'article {article}</h2>
+    {markdown.replace('\n', '<br>')}
+    <br><br>
+    <form method='get' action='/download'>
+    <button type='submit'>Télécharger le fichier Excel</button>
+    </form>
+    </body></html>
+    """
+    with open("last_output.xlsx", "wb") as f:
+        f.write(excel_bytes.read())
+
+    return markdown_html
+
+except Exception as e:
+    flash(str(e))
+    return redirect('/')
+```
+
+@app.route('/download')
+def download():
+return send\_file("last\_output.xlsx", as\_attachment=True)
+
+if **name** == '**main**':
+port = int(os.environ.get("PORT", 5000))
+app.run(host="0.0.0.0", port=port)
+
 
 
 
