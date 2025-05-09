@@ -1,70 +1,122 @@
-"""
+“””
+
 Analyseur disciplinaire – Flask App principale
-"""
+
+“””
+
+
 
 import pandas as pd
+
 import re
+
 import unicodedata
+
 from io import BytesIO
+
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, send\_file, flash, redirect, render\_template
-from werkzeug.utils import secure\_filename
+
+from flask import Flask, request, jsonify, send_file, flash, redirect, render_template
+
+from werkzeug.utils import secure_filename
+
 import os
 
-app = Flask(**name**)
-app.secret\_key = 'secret'
-UPLOAD\_FOLDER = 'uploads'
-os.makedirs(UPLOAD\_FOLDER, exist\_ok=True)
-app.config\['UPLOAD\_FOLDER'] = UPLOAD\_FOLDER
 
-def normalize\_column(col\_name):
-if isinstance(col\_name, str):
-col\_name = unicodedata.normalize('NFKD', col\_name).encode('ASCII', 'ignore').decode('utf-8')
-col\_name = col\_name.lower().strip()
-col\_name = col\_name.replace("’", "'")
-col\_name = re.sub(r'\s+', ' ', col\_name)
-return col\_name
 
-def highlight\_article(text, article):
-pattern = rf'(Art\[.:]?\s\*{re.escape(article)}(?=\[\s\W]|\$))'
-return re.sub(pattern, r'**\1**', text, flags=re.IGNORECASE)
+app = Flask(name)
 
-def remove\_html\_tags(text):
+app.secret_key = ‘secret’
+
+UPLOAD_FOLDER = ‘uploads’
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+app.config[‘UPLOAD_FOLDER’] = UPLOAD_FOLDER
+
+
+
+def normalize_column(col_name):
+
+if isinstance(col_name, str):
+
+col_name = unicodedata.normalize(‘NFKD’, col_name).encode(‘ASCII’, ‘ignore’).decode(‘utf-8’)
+
+col_name = col_name.lower().strip()
+
+col_name = col_name.replace(”’”, “’”)
+
+col_name = re.sub(r’\s+’, ’ ’, col_name)
+
+return col_name
+
+
+
+def highlight_article(text, article):
+
+pattern = rf’(Art[.:]?\s*{re.escape(article)}(?=[\s\W]|$))’
+
+return re.sub(pattern, r’\1’, text, flags=re.IGNORECASE)
+
+
+
+def remove_html_tags(text):
+
 if isinstance(text, str):
-return BeautifulSoup(text, "html.parser").get\_text()
+
+return BeautifulSoup(text, “html.parser”).get_text()
+
 return text
 
-def build\_markdown\_table(df, article):
-headers = \["Statut", "Numéro de décision", "Nom de l'intime", "Articles enfreints",
-"Périodes de radiation", "Amendes", "Autres sanctions", "Résumé"]
-rows = \[]
-for \_, row in df.iterrows():
-resume\_link = row\.get('resume', '')
-resume\_md = f"[Résumé]({resume_link})" if pd.notna(resume\_link) and resume\_link else ""
-ligne = \[
-str(row\.get("statut", "")),
-str(row\.get("numero de decision", "")),
-str(row\.get("nom de l'intime", "")),
-highlight\_article(str(row\.get("articles enfreints", "")), article),
-highlight\_article(str(row\.get("duree totale effective radiation", "")), article),
-highlight\_article(str(row\.get("article amende/chef", "")), article),
-highlight\_article(str(row\.get("autres sanctions", "")), article),
-resume\_md
-]
-rows.append("| " + " | ".join(ligne) + " |")
 
-```
+
+def build_markdown_table(df, article):
+
+headers = [“Statut”, “Numéro de décision”, “Nom de l’intime”, “Articles enfreints”,
+
+“Périodes de radiation”, “Amendes”, “Autres sanctions”, “Résumé”]
+
+rows = []
+
+for _, row in df.iterrows():
+
+resume_link = row.get(‘resume’, ‘’)
+
+resume_md = f”Résumé” if pd.notna(resume_link) and resume_link else “”
+
+ligne = [
+
+str(row.get(“statut”, “”)),
+
+str(row.get(“numero de decision”, “”)),
+
+str(row.get(“nom de l’intime”, “”)),
+
+highlight_article(str(row.get(“articles enfreints”, “”)), article),
+
+highlight_article(str(row.get(“duree totale effective radiation”, “”)), article),
+
+highlight_article(str(row.get(“article amende/chef”, “”)), article),
+
+highlight_article(str(row.get(“autres sanctions”, “”)), article),
+
+resume_md
+
+]
+
+rows.append(”| “ + “ | “.join(ligne) + “ |”)
+
 header_row = "| " + " | ".join(headers) + " |"
 separator = "|" + " --- |" * len(headers)
 return "\n".join([header_row, separator] + rows)
-```
+def build_excel_result(df, article):
 
-def build\_excel\_result(df, article):
 from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe\_to\_rows
+
+from openpyxl.utils.dataframe import dataframe_to_rows
+
 from openpyxl.styles import Font, Alignment, PatternFill
 
-```
 output = BytesIO()
 wb = Workbook()
 ws = wb.active
@@ -107,18 +159,22 @@ for col in ws.columns:
 wb.save(output)
 output.seek(0)
 return output
-```
+def analyse_article(df, article):
 
-def analyse\_article(df, article):
-required\_cols = \[
-'articles enfreints', 'duree totale effective radiation', 'article amende/chef',
-'autres sanctions', "nom de l'intime", 'numero de decision'
+required_cols = [
+
+‘articles enfreints’, ‘duree totale effective radiation’, ‘article amende/chef’,
+
+‘autres sanctions’, “nom de l’intime”, ‘numero de decision’
+
 ]
-for col in required\_cols:
-if col not in df.columns:
-raise ValueError("Erreur : Le fichier est incomplet. Merci de vérifier la structure.")
 
-```
+for col in required_cols:
+
+if col not in df.columns:
+
+raise ValueError(“Erreur : Le fichier est incomplet. Merci de vérifier la structure.”)
+
 pattern_explicit = rf'Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)'
 mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
 result = df[mask].copy()
@@ -128,18 +184,22 @@ if result.empty:
 
 result['statut'] = 'Conforme'
 return result
-```
+@app.route(’/’)
 
-@app.route('/')
 def home():
-return render\_template('index.html')
 
-@app.route('/analyse', methods=\['POST'])
+return render_template(‘index.html’)
+
+
+
+@app.route(’/analyse’, methods=[‘POST’])
+
 def analyse():
-article = request.form.get("article")
-fichier = request.files.get("file")
 
-```
+article = request.form.get(“article”)
+
+fichier = request.files.get(“file”)
+
 if not article or not fichier:
     flash("Veuillez fournir un article et un fichier Excel.")
     return redirect('/')
@@ -176,15 +236,19 @@ try:
 except Exception as e:
     flash(str(e))
     return redirect('/')
-```
+@app.route(’/download’)
 
-@app.route('/download')
 def download():
-return send\_file("last\_output.xlsx", as\_attachment=True)
 
-if **name** == '**main**':
-port = int(os.environ.get("PORT", 5000))
-app.run(host="0.0.0.0", port=port)
+return send_file(“last_output.xlsx”, as_attachment=True)
+
+
+
+if name == ‘main’:
+
+port = int(os.environ.get(“PORT”, 5000))
+
+app.run(host=“0.0.0.0”, port=port)
 
 
 
