@@ -1,11 +1,3 @@
-
-
-Analyseur disciplinaire – Flask App principale
-
-
-
-
-
 import pandas as pd
 
 import re
