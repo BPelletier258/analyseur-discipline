@@ -156,7 +156,7 @@ def analyse():
         <button type='submit'>Télécharger le fichier Excel</button>
         </form>
         </body></html>
-        """
+
         with open("last_output.xlsx", "wb") as f:
             f.write(excel_bytes.read())
 
