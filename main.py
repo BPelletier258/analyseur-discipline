@@ -1,150 +1,138 @@
-from flask import Flask, request, jsonify, send_file
+"""
+Analyseur disciplinaire – Flask App principale
+"""
+
 import pandas as pd
 import re
 import unicodedata
 from io import BytesIO
+from bs4 import BeautifulSoup
+from flask import Flask, request, jsonify, send\_file, flash, redirect, render\_template
+from werkzeug.utils import secure\_filename
+import os
+
+app = Flask(**name**)
+app.secret\_key = 'secret'
+UPLOAD\_FOLDER = 'uploads'
+os.makedirs(UPLOAD\_FOLDER, exist\_ok=True)
+app.config\['UPLOAD\_FOLDER'] = UPLOAD\_FOLDER
+
+def normalize\_column(col\_name):
+if isinstance(col\_name, str):
+col\_name = unicodedata.normalize('NFKD', col\_name).encode('ASCII', 'ignore').decode('utf-8')
+col\_name = col\_name.lower().strip()
+col\_name = col\_name.replace("’", "'")
+col\_name = re.sub(r'\s+', ' ', col\_name)
+return col\_name
+
+def highlight\_article(text, article):
+pattern = rf'(Art\[.:]?\s\*{re.escape(article)}(?=\[\s\W]|\$))'
+return re.sub(pattern, r'**\1**', text, flags=re.IGNORECASE)
+
+def remove\_html\_tags(text):
+if isinstance(text, str):
+return BeautifulSoup(text, "html.parser").get\_text()
+return text
+
+def build\_markdown\_table(df, article):
+headers = \["Statut", "Numéro de décision", "Nom de l'intime", "Articles enfreints",
+"Périodes de radiation", "Amendes", "Autres sanctions", "Résumé"]
+rows = \[]
+for \_, row in df.iterrows():
+resume\_link = row\.get('resume', '')
+resume\_md = f"[Résumé]({resume_link})" if pd.notna(resume\_link) and resume\_link else ""
+ligne = \[
+str(row\.get("statut", "")),
+str(row\.get("numero de decision", "")),
+str(row\.get("nom de l'intime", "")),
+highlight\_article(str(row\.get("articles enfreints", "")), article),
+highlight\_article(str(row\.get("duree totale effective radiation", "")), article),
+highlight\_article(str(row\.get("article amende/chef", "")), article),
+highlight\_article(str(row\.get("autres sanctions", "")), article),
+resume\_md
+]
+rows.append("| " + " | ".join(ligne) + " |")
+
+```
+header_row = "| " + " | ".join(headers) + " |"
+separator = "|" + " --- |" * len(headers)
+return "\n".join([header_row, separator] + rows)
+```
+
+def build\_excel\_result(df, article):
 from openpyxl import Workbook
-from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.utils.dataframe import dataframe\_to\_rows
 from openpyxl.styles import Font, Alignment, PatternFill
 
-app = Flask(__name__)
+```
+output = BytesIO()
+wb = Workbook()
+ws = wb.active
+ws.title = "Résultats"
 
-def normalize_column(col_name):
-    if isinstance(col_name, str):
-        col_name = unicodedata.normalize('NFKD', col_name).encode('ASCII', 'ignore').decode('utf-8')
-        col_name = col_name.lower().strip()
-        col_name = col_name.replace("’", "'")
-        col_name = re.sub(r'\s+', ' ', col_name)
-    return col_name
+df_copy = df.copy()
 
-def highlight_article(text, article):
-    pattern = rf'(Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$))'
-    return re.sub(pattern, r'**\1**', text, flags=re.IGNORECASE)
+# Préparer les liens
+for i, row in df_copy.iterrows():
+    lien = row.get('resume', '')
+    if pd.notna(lien) and lien:
+        df_copy.at[i, 'resume'] = f'=HYPERLINK("{lien}", "Résumé")'
+    else:
+        df_copy.at[i, 'resume'] = ''
 
-def build_markdown_table(df, article):
-    headers = [
-        "Statut", "Numéro de décision", "Nom de l’intime", "Articles enfreints",
-        "Périodes de radiation", "Amendes", "Autres sanctions", "Résumé"
-    ]
-    rows = []
-    for _, row in df.iterrows():
-        resume_link = row.get('resume', '')
-        resume_md = f"[Résumé]({resume_link})" if pd.notna(resume_link) and resume_link.startswith("http") else ""
-        ligne = [
-            str(row.get("statut", "")),
-            str(row.get("numero de decision", "")),
-            str(row.get("nom de l'intime", "")),
-            highlight_article(str(row.get("articles enfreints", "")), article),
-            highlight_article(str(row.get("duree totale effective radiation", "")), article),
-            highlight_article(str(row.get("article amende/chef", "")), article),
-            highlight_article(str(row.get("autres sanctions", "")), article),
-            resume_md
-        ]
-        rows.append("| " + " | ".join(ligne) + " |")
+ordered_columns = [
+    'statut', 'numero de decision', "nom de l'intime", 'articles enfreints',
+    'duree totale effective radiation', 'article amende/chef', 'autres sanctions', 'resume'
+]
+df_copy = df_copy[ordered_columns]
 
-    header_row = "| " + " | ".join(headers) + " |"
-    separator = "|" + " --- |" * len(headers)
-    return "\n" + "\n".join([header_row, separator] + rows) + "\n"
+df_copy = df_copy.dropna(how='all')
+for col in df_copy.columns:
+    df_copy[col] = df_copy[col].apply(remove_html_tags)
 
-def build_excel_result(df, article):
-    output = BytesIO()
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Résultats"
+for r in dataframe_to_rows(df_copy, index=False, header=True):
+    ws.append(r)
 
-    df_copy = df.copy()
-    for i, row in df_copy.iterrows():
-        lien = row.get('resume', '')
-        if pd.notna(lien) and lien:
-            df_copy.at[i, 'resume'] = f'=HYPERLINK("{lien}", "Résumé")'
-        else:
-            df_copy.at[i, 'resume'] = ''
+header_font = Font(bold=True)
+fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+for cell in ws[1]:
+    cell.font = header_font
+    cell.fill = fill
 
-    ordered_columns = [
-        'statut', 'numero de decision', "nom de l'intime", 'articles enfreints',
-        'duree totale effective radiation', 'article amende/chef', 'autres sanctions', 'resume'
-    ]
-    df_copy = df_copy[ordered_columns]
-    df_copy = df_copy.dropna(how='all')
+for row in ws.iter_rows():
+    for cell in row:
+        cell.alignment = Alignment(wrap_text=True)
 
-    for r in dataframe_to_rows(df_copy, index=False, header=True):
-        ws.append(r)
+for col in ws.columns:
+    col_letter = col[0].column_letter
+    ws.column_dimensions[col_letter].width = 30
 
-    header_font = Font(bold=True)
-    fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-    for cell in ws[1]:
-        cell.font = header_font
-        cell.fill = fill
+wb.save(output)
+output.seek(0)
+return output
+```
 
-    for row in ws.iter_rows():
-        for cell in row:
-            cell.alignment = Alignment(wrap_text=True)
+def analyse\_article(df, article):
+required\_cols = \[
+'articles enfreints', 'duree totale effective radiation', 'article amende/chef',
+'autres sanctions', "nom de l'intime", 'numero de decision'
+]
+for col in required\_cols:
+if col not in df.columns:
+raise ValueError("Erreur : Le fichier est incomplet. Merci de vérifier la structure.")
 
-    for col in ws.columns:
-        col_letter = col[0].column_letter
-        ws.column_dimensions[col_letter].width = 30
+```
+pattern_explicit = rf'Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)'
+mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
+result = df[mask].copy()
 
-    wb.save(output)
-    output.seek(0)
-    return output
+if result.empty:
+    raise ValueError(f"Erreur : Aucun intime trouvé pour l'article {article} demandé.")
 
-def analyse_article(df, article):
-    required_cols = [
-        'articles enfreints', 'duree totale effective radiation', 'article amende/chef',
-        'autres sanctions', "nom de l'intime", 'numero de decision'
-    ]
-    for col in required_cols:
-        if col not in df.columns:
-            raise ValueError("Erreur : Le fichier est incomplet. Merci de vérifier la structure.")
+result['statut'] = 'Conforme'
+return result
+```
 
-    pattern_explicit = rf'Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)'
-    mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
-    result = df[mask].copy()
-
-    if result.empty:
-        raise ValueError(f"Erreur : Aucun intime trouvé pour l'article {article} demandé.")
-
-    result['statut'] = 'Conforme'
-    return result
-
-@app.route('/')
-def home():
-    return "Bienvenue sur l'Analyseur de décisions disciplinaires."
-
-@app.route('/analyser', methods=['POST'])
-def analyser():
-    if 'file' not in request.files or 'article' not in request.form:
-        return jsonify({"error": "Fichier ou article manquant."}), 400
-
-    file = request.files['file']
-    article = request.form['article']
-
-    try:
-        df = pd.read_excel(file)
-        df.columns = [normalize_column(c) for c in df.columns]
-        result = analyse_article(df, article)
-        markdown = build_markdown_table(result, article)
-        excel_file = build_excel_result(result, article)
-        return jsonify({"markdown": markdown})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/telecharger_excel', methods=['POST'])
-def telecharger_excel():
-    if 'file' not in request.files or 'article' not in request.form:
-        return jsonify({"error": "Fichier ou article manquant."}), 400
-
-    file = request.files['file']
-    article = request.form['article']
-
-    try:
-        df = pd.read_excel(file)
-        df.columns = [normalize_column(c) for c in df.columns]
-        result = analyse_article(df, article)
-        output = build_excel_result(result, article)
-        return send_file(output, download_name="resultat.xlsx", as_attachment=True)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 
 
