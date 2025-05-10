@@ -5,7 +5,7 @@ import re
 import unicodedata
 import os
 from io import BytesIO
-from flask import Markup
+from markupsafe import Markup
 
 app = Flask(__name__)
 app.secret_key = 'secret_key'
