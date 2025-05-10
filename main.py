@@ -1,116 +1,91 @@
 
-from flask import Flask, request, render_template, send_file
+import os
 import pandas as pd
 import re
-import unicodedata
+from flask import Flask, request, render_template, send_file
 from io import BytesIO
-import xlsxwriter
-import markdown2
+from markupsafe import Markup
 
 app = Flask(__name__)
 
-def normalize_column(col_name):
-    col_name = unicodedata.normalize('NFKD', str(col_name)).encode('ASCII', 'ignore').decode('utf-8')
-    col_name = col_name.replace("’", "'")
-    col_name = col_name.lower()
-    col_name = re.sub(r'\s+', ' ', col_name).strip()
-    return col_name
+def normalize_column(col):
+    col = col.strip().lower()
+    col = re.sub(r"['’]", "'", col)
+    col = re.sub(r"[^a-z0-9àâçéèêëîïôûùüÿñæœ ._-]", "", col)
+    return col
+
+def clean_column_name(col):
+    return normalize_column(str(col)).replace(" ", "_")
 
 def highlight_article(text, article):
-    if not isinstance(text, str):
-        return text
-    pattern = re.compile(rf'(Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$))', flags=re.IGNORECASE)
-    return pattern.sub(r'**\1**', text)
+    pattern = re.compile(rf"(Art\.?\s*{re.escape(article)})", re.IGNORECASE)
+    return pattern.sub(r"**\1**", str(text))
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/analyse', methods=['POST'])
+@app.route("/", methods=["GET", "POST"])
 def analyse():
-    if 'file' not in request.files or 'article' not in request.form:
-        return render_template('index.html', erreur="Fichier ou article manquant.")
+    if request.method == "POST":
+        article = request.form.get("article", "").strip()
+        file = request.files.get("file")
+        if not article or not file:
+            return render_template("index.html", erreur="Veuillez fournir un article et un fichier.")
 
-    file = request.files['file']
-    article = request.form['article'].strip()
+        try:
+            df = pd.read_excel(file)
+            df.columns = [clean_column_name(c) for c in df.columns]
 
-    try:
-        df = pd.read_excel(file)
-        df.columns = [normalize_column(col) for col in df.columns]
+            required = [
+                "articles_enfreints",
+                "duree_totale_effective_radiation",
+                "article_amende/chef",
+                "autres_sanctions",
+                "nom_de_l'intime",
+                "numero_de_decision"
+            ]
 
-        required_columns = [
-            "articles enfreints", "duree totale effective radiation",
-            "article amende/chef", "autres sanctions",
-            "nom de l'intime", "numero de decision"
-        ]
-        for col in required_columns:
-            if col not in df.columns:
-                return render_template('index.html', erreur=f"Colonne manquante : {col}")
+            if not all(col in df.columns for col in required):
+                return render_template("index.html", erreur="Colonnes manquantes après nettoyage.")
 
-        pattern = re.compile(rf'\bArt[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)', re.IGNORECASE)
-        filtered = df[df["articles enfreints"].astype(str).str.contains(pattern)]
+            pattern = re.compile(rf"Art\.?\s*{re.escape(article)}(?=[\s\W]|$)", re.IGNORECASE)
+            mask = df["articles_enfreints"].astype(str).str.contains(pattern)
+            result = df[mask].copy()
 
-        if filtered.empty:
-            return render_template('index.html', erreur=f"Aucun intime trouvé pour l'article {article}.")
+            if result.empty:
+                return render_template("index.html", erreur=f"Aucun intime trouvé pour l'article {article}.")
 
-        filtered = filtered.copy()
-        filtered['Statut'] = "Conforme"
+            result["Statut"] = "Conforme"
 
-        for col in ["articles enfreints", "duree totale effective radiation", "article amende/chef", "autres sanctions"]:
-            filtered[col] = filtered[col].apply(lambda x: highlight_article(x, article))
+            # Mise en gras et liens markdown
+            for col in ["articles_enfreints", "duree_totale_effective_radiation", "article_amende/chef", "autres_sanctions"]:
+                result[col] = result[col].apply(lambda x: highlight_article(x, article))
 
-        filtered = filtered[[
-            "Statut", "numero de decision", "nom de l'intime",
-            "articles enfreints", "duree totale effective radiation",
-            "article amende/chef", "autres sanctions", "resume"
-        ]]
+            if "resume" in result.columns:
+                result["resume"] = result["resume"].apply(lambda x: f"[Résumé]({x})" if pd.notna(x) else "")
 
-        # Génération du tableau Markdown
-        def build_markdown_table(df):
-            headers = df.columns.tolist()
-            lines = ["| " + " | ".join(headers) + " |",
-                     "| " + " | ".join(["---"] * len(headers)) + " |"]
-            for _, row in df.iterrows():
-                line = []
-                for col in headers:
-                    value = row[col]
-                    if col.lower() == "resume" and pd.notnull(value):
-                        line.append(f"[Résumé]({value})")
-                    else:
-                        line.append(str(value).replace("\n", " "))
-                lines.append("| " + " | ".join(line) + " |")
-            return "\n".join(lines)
+            result = result[[
+                "Statut", "numero_de_decision", "nom_de_l'intime", "articles_enfreints",
+                "duree_totale_effective_radiation", "article_amende/chef", "autres_sanctions"
+            ] + (["resume"] if "resume" in result.columns else [])]
 
-        markdown_table = build_markdown_table(filtered)
-        html_markdown = markdown2.markdown(markdown_table)
+            # Création Excel
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                result.to_excel(writer, index=False, sheet_name="Résultats")
+                sheet = writer.sheets["Résultats"]
+                for i, width in enumerate([30]*len(result.columns)):
+                    sheet.set_column(i, i, width)
 
-        # Création fichier Excel
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            filtered.to_excel(writer, index=False, sheet_name='Résultats')
-            workbook = writer.book
-            worksheet = writer.sheets['Résultats']
-            wrap = workbook.add_format({'text_wrap': True, 'valign': 'top'})
-            red_format = workbook.add_format({'font_color': 'red', 'text_wrap': True, 'valign': 'top'})
-            header_format = workbook.add_format({'bold': True, 'bg_color': '#D9D9D9', 'align': 'center'})
+            output.seek(0)
+            markdown_table = result.to_markdown(index=False)
+            return render_template("index.html", table=Markup(markdown_table), fichier=output)
 
-            for i, col in enumerate(filtered.columns):
-                worksheet.set_column(i, i, 30, wrap)
-                worksheet.write(0, i, col, header_format)
-                for j, val in enumerate(filtered[col], start=1):
-                    fmt = red_format if '**' in str(val) else wrap
-                    worksheet.write(j, i, str(val).replace('**', ''), fmt)
+        except Exception as e:
+            return render_template("index.html", erreur=str(e))
 
-        output.seek(0)
-        return render_template('resultats.html',
-                               table_html=html_markdown,
-                               fichier_excel=output)
-
-    except Exception as e:
-        return render_template('index.html', erreur=str(e))
+    return render_template("index.html")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
 
 
