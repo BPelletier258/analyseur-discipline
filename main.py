@@ -1,109 +1,118 @@
-from flask import Flask, request, render_template, redirect, url_for, send_file, flash
+
+from flask import Flask, request, jsonify, send_file, render_template
 import pandas as pd
-import re
 import unicodedata
+import re
 import os
 from io import BytesIO
 from markupsafe import Markup
+import markdown2
 
 app = Flask(__name__)
-app.secret_key = 'secret_key'
 
 def normalize_column(col_name):
     if isinstance(col_name, str):
         col_name = unicodedata.normalize('NFKD', col_name).encode('ASCII', 'ignore').decode('utf-8')
-        col_name = col_name.replace("’", "'")
-        col_name = col_name.lower()
+        col_name = col_name.replace("’", "'").lower()
         col_name = re.sub(r'\s+', ' ', col_name).strip()
     return col_name
 
-def highlight_article(text, article):
-    pattern = rf'Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)'
-    return re.sub(pattern, r'**Art. ' + article + r'**', str(text), flags=re.IGNORECASE)
+def surligner_article(texte, article):
+    pattern = re.compile(rf"(Art[\.\:]?\s*{re.escape(article)}(?=[\s\W]|$))", re.IGNORECASE)
+    return pattern.sub(r"<span style='color:red;font-weight:bold'>\1</span>", str(texte))
 
-def generate_markdown_table(df, article_number):
-    headers = df.columns.tolist()
-    md = "| " + " | ".join(headers) + " |\n"
-    md += "| " + " | ".join(["---"] * len(headers)) + " |\n"
-    for _, row in df.iterrows():
-        line = []
-        for col in headers:
-            cell = str(row[col])
-            if col.lower() != 'resume':
-                cell = highlight_article(cell, article_number)
-            elif cell.startswith("http"):
-                cell = f"[Résumé]({cell})"
-            line.append(cell)
-        md += "| " + " | ".join(line) + " |\n"
-    return md
+def marquer_article_markdown(texte, article):
+    pattern = re.compile(rf"(Art[\.\:]?\s*{re.escape(article)}(?=[\s\W]|$))", re.IGNORECASE)
+    return pattern.sub(r"**\1**", str(texte))
 
 @app.route('/')
-def index():
+def home():
     return render_template('index.html')
 
 @app.route('/analyse', methods=['POST'])
-def analyse():
+def analyse_article():
+    article = request.form.get('article', '').strip()
+    file = request.files.get('file')
+
+    if not article or not file:
+        return render_template('index.html', erreur="Article ou fichier manquant")
+
     try:
-        article_number = request.form.get('article')
-        file = request.files.get('file')
-        if not article_number or not file:
-            flash("Fichier Excel ou numéro d'article manquant.")
-            return redirect(url_for('index'))
-
         df = pd.read_excel(file)
-        df.columns = [normalize_column(col) for col in df.columns]
+        df = df.rename(columns=lambda c: normalize_column(c))
 
-        required_cols = [
+        colonnes_requises = [
             "articles enfreints", "duree totale effective radiation",
             "article amende/chef", "autres sanctions",
             "nom de l'intime", "numero de decision"
         ]
-
-        for col in required_cols:
+        for col in colonnes_requises:
             if col not in df.columns:
-                flash("Le fichier est incomplet. Merci de vérifier la structure.")
-                return redirect(url_for('index'))
+                return render_template('index.html', erreur=f"Colonne manquante: {col}")
 
-        if 'resume' not in df.columns:
-            df['resume'] = ""
+        pattern = rf"Art[.:]?\s*{re.escape(article)}(?=[\s\W]|$)"
+        masque = df["articles enfreints"].astype(str).str.contains(pattern, case=False, na=False, regex=True)
+        resultats = df[masque].copy()
 
-        pattern = rf'Art[\.:]?\s*{re.escape(article_number)}(?=[\s\W]|$)'
-        mask = df["articles enfreints"].astype(str).str.contains(pattern, flags=re.IGNORECASE, na=False)
-        filtered = df[mask].copy()
+        if resultats.empty:
+            return render_template('index.html', erreur=f"Aucun intime trouvé pour l'article {article}")
 
-        if filtered.empty:
-            flash(f"Aucun intime trouvé pour l'article {article_number}")
-            return redirect(url_for('index'))
+        resultats['Statut'] = 'Conforme'
 
-        filtered.insert(0, 'Statut', 'Conforme')
-
-        markdown = generate_markdown_table(filtered[[
+        colonnes_affichees = [
             "Statut", "numero de decision", "nom de l'intime", "articles enfreints",
-            "duree totale effective radiation", "article amende/chef", "autres sanctions", "resume"
-        ]], article_number)
+            "duree totale effective radiation", "article amende/chef", "autres sanctions"
+        ]
+        if 'resume' in resultats.columns:
+            colonnes_affichees.append("resume")
 
-        excel_output = BytesIO()
-        with pd.ExcelWriter(excel_output, engine='xlsxwriter') as writer:
-            filtered.to_excel(writer, sheet_name='Résultats', index=False)
-            ws = writer.sheets['Résultats']
-            for col_num, width in enumerate([30]*filtered.shape[1]):
-                ws.set_column(col_num, col_num, width)
-            fmt = writer.book.add_format({'text_wrap': True, 'align': 'top'})
-            ws.set_row(0, None, writer.book.add_format({'bold': True, 'bg_color': '#D9D9D9'}))
-            for row_num in range(1, len(filtered)+1):
-                ws.set_row(row_num, None, fmt)
+        resultats = resultats[colonnes_affichees]
 
-        excel_output.seek(0)
-        return render_template("resultats.html",
-                               markdown_table=Markup(markdown),
-                               excel_download=True)
+        for col in ["articles enfreints", "duree totale effective radiation", "article amende/chef", "autres sanctions"]:
+            resultats[col] = resultats[col].apply(lambda x: surligner_article(x, article))
+
+        markdown_table = resultats.copy()
+        for col in ["articles enfreints", "duree totale effective radiation", "article amende/chef", "autres sanctions"]:
+            markdown_table[col] = markdown_table[col].apply(lambda x: marquer_article_markdown(x, article))
+
+        if 'resume' in markdown_table.columns:
+            markdown_table['resume'] = markdown_table['resume'].apply(
+                lambda x: f"[Résumé]({x})" if pd.notna(x) else ""
+            )
+
+        markdown_table = markdown_table.rename(columns={
+            "numero de decision": "Numéro de décision",
+            "nom de l'intime": "Nom de l’intime",
+            "articles enfreints": "Articles enfreints",
+            "duree totale effective radiation": "Périodes de radiation",
+            "article amende/chef": "Amendes",
+            "autres sanctions": "Autres sanctions",
+            "resume": "Résumé"
+        })
+
+        markdown_str = markdown_table.to_markdown(index=False)
+        markdown_html = markdown2.markdown(markdown_str)
+
+        output_excel = BytesIO()
+        with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+            resultats.to_excel(writer, sheet_name='Résultats', index=False)
+            feuille = writer.sheets['Résultats']
+            format_gras = writer.book.add_format({'bold': True, 'bg_color': '#DDDDDD'})
+            for i, col in enumerate(resultats.columns):
+                feuille.set_column(i, i, 30)
+                feuille.write(0, i, col, format_gras)
+
+        output_excel.seek(0)
+        encoded_excel = output_excel.read()
+
+        return render_template('resultats.html', tableau_html=Markup(markdown_html), fichier_excel=encoded_excel)
 
     except Exception as e:
-        return render_template('index.html', erreur=str(e))
+        return render_template('index.html', erreur=f"Erreur : {str(e)}")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    app.run(debug=True, host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port)
 
 
 
