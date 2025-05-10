@@ -1,51 +1,44 @@
 
-import os
-import re
 import pandas as pd
-from flask import Flask, request, render_template, send_file, redirect, flash
-from werkzeug.utils import secure_filename
+import re
+import unicodedata
+from flask import Flask, request, render_template, send_file
 from io import BytesIO
-import markdown
+import xlsxwriter
 
 app = Flask(__name__)
-app.secret_key = "secret"
-UPLOAD_FOLDER = "uploads"
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def normalize_column(col_name):
-    import unicodedata
     if isinstance(col_name, str):
         col_name = unicodedata.normalize('NFKD', col_name).encode('ASCII', 'ignore').decode('utf-8')
         col_name = col_name.replace("’", "'")
-        col_name = col_name.lower().strip()
-        col_name = re.sub(r'\s+', ' ', col_name)
+        col_name = col_name.lower()
+        col_name = re.sub(r'\s+', ' ', col_name).strip()
     return col_name
 
-def highlight_article(text, article):
-    if not isinstance(text, str):
-        return text
-    pattern = re.compile(rf"(Art[\.:]?\s*{re.escape(article)})", flags=re.IGNORECASE)
-    return pattern.sub(r"<span style='color:red'><b>\1</b></span>", text)
+def style_article(cell, article):
+    if not isinstance(cell, str):
+        return cell
+    pattern = re.compile(rf'(Art[\.\:]?\s*{re.escape(article)})', re.IGNORECASE)
+    return pattern.sub(r'<span style="color:red;font-weight:bold">\1</span>', cell)
 
-@app.route("/", methods=["GET", "POST"])
+@app.route('/', methods=['GET'])
 def index():
-    return render_template("index.html")
+    return render_template('index.html')
 
-@app.route("/analyse", methods=["POST"])
+@app.route('/analyse', methods=['POST'])
 def analyse():
     try:
-        file = request.files["fichier"]
-        article = request.form["article"].strip()
+        file = request.files['file']
+        article = request.form['article'].strip()
 
         if not file or not article:
-            flash("Veuillez fournir un fichier et un numéro d'article.")
-            return redirect("/")
+            return render_template('index.html', erreur="Veuillez fournir un fichier Excel et un article.")
 
         df = pd.read_excel(file)
         df = df.rename(columns=lambda c: normalize_column(c))
 
-        required_columns = [
+        required = [
             "articles enfreints",
             "duree totale effective radiation",
             "article amende/chef",
@@ -53,53 +46,77 @@ def analyse():
             "nom de l'intime",
             "numero de decision"
         ]
-
-        for col in required_columns:
+        for col in required:
             if col not in df.columns:
-                return render_template("index.html", erreur="Le fichier est incomplet. Merci de vérifier la structure.")
+                return render_template('index.html', erreur="Le fichier est incomplet. Merci de vérifier la structure.")
 
-        pattern = rf"\bArt[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)"
-        mask = df["articles enfreints"].astype(str).str.contains(pattern, na=False, flags=re.IGNORECASE)
+        pattern_explicit = rf'\bArt[\.\:]?\s*{re.escape(article)}\b'
+        mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
+        conformes = df[mask].copy()
 
-        if not mask.any():
-            return render_template("index.html", erreur=f"Aucun intime trouvé pour l'article {article} demandé.")
+        if conformes.empty:
+            return render_template('index.html', erreur=f"Aucun intime trouvé pour l'article {article} demandé.")
 
-        result = df[mask].copy()
-        result["Statut"] = "Conforme"
+        conformes['Statut'] = 'Conforme'
 
-        # Mise en forme HTML
-        columns_order = [
-            "Statut",
-            "numero de decision",
+        # Appliquer la mise en forme HTML dans toutes les colonnes pertinentes
+        colonnes_cibles = [
+            "articles enfreints", "duree totale effective radiation",
+            "article amende/chef", "autres sanctions"
+        ]
+        for col in colonnes_cibles:
+            conformes[col] = conformes[col].apply(lambda x: style_article(x, article))
+
+        # Créer une table HTML Markdown simplifiée sans la colonne Résumé
+        display_df = conformes[[
+            'Statut',
+            'numero de decision',
             "nom de l'intime",
             "articles enfreints",
             "duree totale effective radiation",
             "article amende/chef",
-            "autres sanctions",
-        ]
-        if "resume" in result.columns:
-            columns_order.append("resume")
+            "autres sanctions"
+        ]]
+        markdown_table = display_df.to_markdown(index=False)
 
-        for col in columns_order:
-            if col in result.columns:
-                result[col] = result[col].apply(lambda x: highlight_article(x, article))
+        # Générer le fichier Excel avec mise en forme
+        output = BytesIO()
+        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+        worksheet = workbook.add_worksheet('Résultats')
 
-        if "resume" in result.columns:
-            result["resume"] = result["resume"].apply(lambda x: f'<a href="{x}" target="_blank">Résumé</a>' if pd.notna(x) else "")
+        # Formats
+        wrap = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+        header = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3'})
+        rouge = workbook.add_format({'bg_color': '#FFC7CE', 'text_wrap': True})
 
-        # Génération Markdown
-        table_md = result[columns_order].to_markdown(index=False)
+        # Entêtes
+        for col_num, col_name in enumerate(display_df.columns):
+            worksheet.write(0, col_num, col_name, header)
+            worksheet.set_column(col_num, col_num, 30)
 
-        table_html = markdown.markdown(f"\n\n{table_md}\n\n", extensions=["tables"])
+        # Lignes
+        for row_num, row in enumerate(display_df.values, 1):
+            for col_num, value in enumerate(row):
+                cell_str = str(value)
+                if re.search(pattern_explicit, cell_str, flags=re.IGNORECASE):
+                    worksheet.write(row_num, col_num, cell_str, rouge)
+                else:
+                    worksheet.write(row_num, col_num, cell_str, wrap)
 
-        return render_template("resultats.html", tableau_html=table_html)
+        workbook.close()
+        output.seek(0)
+
+        return render_template("resultats.html",
+            table_markdown=markdown_table,
+            fichier_excel=output.read(),
+            filename=f"resultats_article_{article}.xlsx"
+        )
 
     except Exception as e:
-        return render_template("index.html", erreur=str(e))
+        return render_template('index.html', erreur=str(e))
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    app.run(debug=True)
 
 
 
