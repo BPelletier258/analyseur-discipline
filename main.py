@@ -1,44 +1,51 @@
 
 import os
-import pandas as pd
-import unicodedata
 import re
-from flask import Flask, request, render_template, send_file
+import pandas as pd
+from flask import Flask, request, render_template, send_file, redirect, flash
+from werkzeug.utils import secure_filename
 from io import BytesIO
-import xlsxwriter
+import markdown
 
 app = Flask(__name__)
+app.secret_key = "secret"
+UPLOAD_FOLDER = "uploads"
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Fonction pour normaliser les noms de colonnes
 def normalize_column(col_name):
+    import unicodedata
     if isinstance(col_name, str):
         col_name = unicodedata.normalize('NFKD', col_name).encode('ASCII', 'ignore').decode('utf-8')
-        col_name = col_name.replace("’", "'").lower()
-        col_name = re.sub(r'\s+', ' ', col_name).strip()
+        col_name = col_name.replace("’", "'")
+        col_name = col_name.lower().strip()
+        col_name = re.sub(r'\s+', ' ', col_name)
     return col_name
 
-# Fonction pour mettre en rouge les cellules contenant l'article
-def detect_article_cell(text, article):
-    pattern = rf"art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)"
-    return bool(re.search(pattern, str(text), flags=re.IGNORECASE))
+def highlight_article(text, article):
+    if not isinstance(text, str):
+        return text
+    pattern = re.compile(rf"(Art[\.:]?\s*{re.escape(article)})", flags=re.IGNORECASE)
+    return pattern.sub(r"<span style='color:red'><b>\1</b></span>", text)
 
-@app.route("/", methods=["GET"])
+@app.route("/", methods=["GET", "POST"])
 def index():
     return render_template("index.html")
 
 @app.route("/analyse", methods=["POST"])
 def analyse():
     try:
-        fichier = request.files["fichier"]
+        file = request.files["fichier"]
         article = request.form["article"].strip()
 
-        if not fichier or not article:
-            return render_template("index.html", erreur="Merci de fournir un fichier et un article.")
+        if not file or not article:
+            flash("Veuillez fournir un fichier et un numéro d'article.")
+            return redirect("/")
 
-        df = pd.read_excel(fichier)
-        df.columns = [normalize_column(col) for col in df.columns]
+        df = pd.read_excel(file)
+        df = df.rename(columns=lambda c: normalize_column(c))
 
-        required_cols = [
+        required_columns = [
             "articles enfreints",
             "duree totale effective radiation",
             "article amende/chef",
@@ -47,69 +54,51 @@ def analyse():
             "numero de decision"
         ]
 
-        for col in required_cols:
+        for col in required_columns:
             if col not in df.columns:
                 return render_template("index.html", erreur="Le fichier est incomplet. Merci de vérifier la structure.")
 
-        # Filtrage strict de l'article
         pattern = rf"\bArt[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)"
         mask = df["articles enfreints"].astype(str).str.contains(pattern, na=False, flags=re.IGNORECASE)
-        conformes = df[mask].copy()
-        conformes["Statut"] = "Conforme"
 
-        if conformes.empty:
+        if not mask.any():
             return render_template("index.html", erreur=f"Aucun intime trouvé pour l'article {article} demandé.")
 
-        colonnes_finales = [
+        result = df[mask].copy()
+        result["Statut"] = "Conforme"
+
+        # Mise en forme HTML
+        columns_order = [
             "Statut",
             "numero de decision",
             "nom de l'intime",
             "articles enfreints",
             "duree totale effective radiation",
             "article amende/chef",
-            "autres sanctions"
+            "autres sanctions",
         ]
+        if "resume" in result.columns:
+            columns_order.append("resume")
 
-        colonnes_finales = [col for col in colonnes_finales if col in conformes.columns]
-        resultat = conformes[colonnes_finales].copy()
+        for col in columns_order:
+            if col in result.columns:
+                result[col] = result[col].apply(lambda x: highlight_article(x, article))
 
-        # Création du fichier Excel avec format
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            resultat.to_excel(writer, index=False, sheet_name="Résultats")
-            workbook = writer.book
-            worksheet = writer.sheets["Résultats"]
+        if "resume" in result.columns:
+            result["resume"] = result["resume"].apply(lambda x: f'<a href="{x}" target="_blank">Résumé</a>' if pd.notna(x) else "")
 
-            rouge_format = workbook.add_format({"bg_color": "#FFC7CE", "font_color": "#9C0006"})
-            header_format = workbook.add_format({"bold": True, "bg_color": "#D9D9D9", "border": 1})
-            wrap_format = workbook.add_format({"text_wrap": True})
-            worksheet.set_row(0, None, header_format)
+        # Génération Markdown
+        table_md = result[columns_order].to_markdown(index=False)
 
-            for i, col in enumerate(resultat.columns):
-                worksheet.set_column(i, i, 30, wrap_format)
-                for j, value in enumerate(resultat[col]):
-                    if detect_article_cell(value, article):
-                        worksheet.write(j + 1, i, value, rouge_format)
+        table_html = markdown.markdown(f"\n\n{table_md}\n\n", extensions=["tables"])
 
-        output.seek(0)
-
-        # Génération HTML simplifiée (Markdown-like)
-        table_md = "| " + " | ".join(colonnes_finales) + " |
-"
-        table_md += "| " + " | ".join(["---"] * len(colonnes_finales)) + " |
-"
-        for _, row in resultat.iterrows():
-            ligne = [str(cell) for cell in row]
-            table_md += "| " + " | ".join(ligne) + " |
-"
-
-        return render_template("resultats.html", table_md=table_md, table_excel=output)
+        return render_template("resultats.html", tableau_html=table_html)
 
     except Exception as e:
         return render_template("index.html", erreur=str(e))
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
 
 
