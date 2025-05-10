@@ -5,25 +5,81 @@
     <meta charset="UTF-8">
     <title>Analyse d'article disciplinaire</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        table { border-collapse: collapse; width: 100%; line-height: 1.5; }
-        th, td { border: 1px solid #ccc; padding: 8px; }
-        th { background-color: #f2f2f2; }
-        .rouge { color: red; font-weight: bold; }
-        pre { background: #f7f7f7; padding: 10px; white-space: pre-wrap; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background-color: #f9f9f9;
+        }
+        h1 {
+            color: #333;
+        }
+        form {
+            margin-top: 20px;
+            margin-bottom: 30px;
+        }
+        input[type="text"], input[type="file"], button {
+            padding: 10px;
+            margin-top: 10px;
+            margin-right: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 30px;
+            font-size: 0.95em;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background-color: #e0e0e0;
+        }
+        .rouge {
+            color: red;
+            font-weight: bold;
+        }
+        .message-erreur {
+            color: red;
+            font-weight: bold;
+        }
+        .telechargement {
+            margin-top: 20px;
+        }
+        .table-wrapper {
+            overflow-x: auto;
+        }
     </style>
 </head>
 <body>
-    <h2>Recherche d'infractions disciplinaires</h2>
+    <h1>Recherche d’un article disciplinaire</h1>
+
+    {% if erreur %}
+        <p class="message-erreur">{{ erreur }}</p>
+    {% endif %}
+
     <form action="/analyse" method="post" enctype="multipart/form-data">
-        <label for="file">Fichier Excel:</label>
-        <input type="file" name="file" required>
-        <label for="article">Article à rechercher:</label>
-        <input type="text" name="article" required>
+        <label for="fichier_excel">Fichier Excel :</label>
+        <input type="file" name="fichier_excel" required>
+        <br>
+        <label for="article">Article recherché :</label>
+        <input type="text" name="article" placeholder="Ex: 59(2)" required>
+        <br>
         <button type="submit">Analyser</button>
     </form>
-    {% if erreur %}
-        <p style="color: red;"><strong>{{ erreur }}</strong></p>
+
+    {% if markdown %}
+        <div class="table-wrapper">
+            <pre style="line-height: 1.5;">{{ markdown }}</pre>
+        </div>
+    {% endif %}
+
+    {% if fichier_excel %}
+        <div class="telechargement">
+            <a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{{ fichier_excel | b64encode }}" download="résultats.xlsx">Télécharger le fichier Excel</a>
+        </div>
     {% endif %}
 </body>
 </html>
