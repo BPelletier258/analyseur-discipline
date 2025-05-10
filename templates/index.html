@@ -1,39 +1,30 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Analyseur d'infractions - Article spécifique</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Analyse d'article disciplinaire</title>
     <style>
-        body { padding: 2rem; font-family: Arial, sans-serif; }
-        .table th, .table td { vertical-align: middle; }
-        .table td { white-space: pre-wrap; }
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        table { border-collapse: collapse; width: 100%; line-height: 1.5; }
+        th, td { border: 1px solid #ccc; padding: 8px; }
+        th { background-color: #f2f2f2; }
+        .rouge { color: red; font-weight: bold; }
+        pre { background: #f7f7f7; padding: 10px; white-space: pre-wrap; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h2 class="mb-4">Analyseur d'infractions à partir d'un article</h2>
-        <form action="/analyse" method="post" enctype="multipart/form-data">
-            <div class="mb-3">
-                <label for="file" class="form-label">Fichier Excel</label>
-                <input type="file" name="file" id="file" class="form-control" required>
-            </div>
-            <div class="mb-3">
-                <label for="article" class="form-label">Article à rechercher (ex: 59(2))</label>
-                <input type="text" name="article" id="article" class="form-control" required>
-            </div>
-            <button type="submit" class="btn btn-primary">Analyser</button>
-        </form>
-        {% if erreur %}
-            <div class="alert alert-danger mt-4">{{ erreur }}</div>
-        {% endif %}
-        {% if tableau_html %}
-            <div class="mt-5">
-                <h4>Résultats :</h4>
-                {{ tableau_html|safe }}
-            </div>
-        {% endif %}
-    </div>
+    <h2>Recherche d'infractions disciplinaires</h2>
+    <form action="/analyse" method="post" enctype="multipart/form-data">
+        <label for="file">Fichier Excel:</label>
+        <input type="file" name="file" required>
+        <label for="article">Article à rechercher:</label>
+        <input type="text" name="article" required>
+        <button type="submit">Analyser</button>
+    </form>
+    {% if erreur %}
+        <p style="color: red;"><strong>{{ erreur }}</strong></p>
+    {% endif %}
 </body>
 </html>
 
