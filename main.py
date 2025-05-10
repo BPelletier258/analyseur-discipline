@@ -1,116 +1,92 @@
-
-import os
-import re
+from flask import Flask, request, render_template, send_file
 import pandas as pd
-from flask import Flask, request, render_template, send_file, redirect, flash
-from werkzeug.utils import secure_filename
+import re
+import unicodedata
 from io import BytesIO
 import xlsxwriter
 
 app = Flask(__name__)
-app.secret_key = 'secret'
-UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def normalize_column(col_name):
-    import unicodedata
     if isinstance(col_name, str):
         col_name = unicodedata.normalize('NFKD', col_name).encode('ASCII', 'ignore').decode('utf-8')
         col_name = col_name.replace("’", "'").lower()
         col_name = re.sub(r'\s+', ' ', col_name).strip()
     return col_name
 
-def highlight_article(cell, article_pattern):
-    if isinstance(cell, str) and re.search(article_pattern, cell, flags=re.IGNORECASE):
-        return True
-    return False
+def color_cells(val, article):
+    article_pattern = rf"Art[\.\:]?\s*{re.escape(article)}(?=[\s\W]|$)"
+    if pd.notna(val) and re.search(article_pattern, str(val), flags=re.IGNORECASE):
+        return {'bg_color': '#FFC7CE'}
+    return {}
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route("/")
 def index():
-    if request.method == 'POST':
-        file = request.files.get('fichier')
-        article = request.form.get('article', '').strip()
-
-        if not file or not article:
-            flash("Veuillez fournir un fichier et un numéro d'article.")
-            return redirect(request.url)
-
-        try:
-            df = pd.read_excel(file)
-            df.columns = [normalize_column(col) for col in df.columns]
-
-            required_cols = [
-                "articles enfreints", "duree totale effective radiation", "article amende/chef",
-                "autres sanctions", "nom de l'intime", "numero de decision"
-            ]
-            for col in required_cols:
-                if col not in df.columns:
-                    return render_template("index.html", erreur=f"Colonne manquante : {col}")
-
-            article_pattern = rf'Art[\.:\s]*{re.escape(article)}(?=[\s\W]|$)'
-            mask = df["articles enfreints"].astype(str).str.contains(article_pattern, na=False, flags=re.IGNORECASE)
-            conformes = df[mask].copy()
-            conformes['Statut'] = "Conforme"
-
-            if conformes.empty:
-                return render_template("index.html", erreur=f"Aucun intime trouvé pour l'article {article} demandé.")
-
-            # Ajout du lien cliquable (Résumé) s'il existe
-            if 'resume' in conformes.columns:
-                conformes['Résumé'] = conformes['resume'].apply(
-                    lambda url: f"[Résumé]({url})" if pd.notna(url) and isinstance(url, str) else ""
-                )
-
-            # Création du tableau Markdown
-            colonnes_affichees = [
-                "Statut", "numero de decision", "nom de l'intime", "articles enfreints",
-                "duree totale effective radiation", "article amende/chef", "autres sanctions"
-            ]
-            if 'Résumé' in conformes.columns:
-                colonnes_affichees.append('Résumé')
-
-            markdown_table = conformes[colonnes_affichees].copy()
-            markdown = markdown_table.to_markdown(index=False)
-
-            # Création du fichier Excel
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                conformes[colonnes_affichees].to_excel(writer, index=False, sheet_name='Résultats')
-                workbook = writer.book
-                worksheet = writer.sheets['Résultats']
-                red_format = workbook.add_format({'bg_color': '#FFC7CE'})
-
-                for row_idx, row in enumerate(conformes[colonnes_affichees].itertuples(index=False), start=1):
-                    for col_idx, value in enumerate(row):
-                        if isinstance(value, str) and re.search(article_pattern, value, flags=re.IGNORECASE):
-                            worksheet.write(row_idx, col_idx, value, red_format)
-                        else:
-                            worksheet.write(row_idx, col_idx, value)
-                worksheet.set_row(0, 30)
-                for i in range(len(colonnes_affichees)):
-                    worksheet.set_column(i, i, 30)
-
-            output.seek(0)
-
-            return render_template("resultats.html", table_html=markdown, article=article,
-                                   fichier_excel='resultats.xlsx', fichier_data=output.read())
-
-        except Exception as e:
-            return render_template("index.html", erreur=str(e))
-
     return render_template("index.html")
 
-@app.route('/telecharger')
-def telecharger():
-    fichier_data = request.args.get('fichier_data')
-    if not fichier_data:
-        return "Fichier manquant", 400
-    output = BytesIO(fichier_data.encode('latin1'))
-    return send_file(output, download_name="resultats.xlsx", as_attachment=True)
+@app.route("/analyse", methods=["POST"])
+def analyse():
+    try:
+        fichier = request.files["file"]
+        article = request.form["article"].strip()
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+        df = pd.read_excel(fichier)
+        df.columns = [normalize_column(c) for c in df.columns]
+
+        colonnes_requises = [
+            "articles enfreints", "duree totale effective radiation", "article amende/chef",
+            "autres sanctions", "nom de l'intime", "numero de decision"
+        ]
+        for col in colonnes_requises:
+            if col not in df.columns:
+                raise ValueError("Le fichier est incomplet. Merci de vérifier la structure.")
+
+        pattern_explicit = rf"Art[\.\:]?\s*{re.escape(article)}(?=[\s\W]|$)"
+        mask = df["articles enfreints"].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
+        resultats = df[mask].copy()
+
+        if resultats.empty:
+            raise ValueError(f"Aucun intime trouvé pour l'article {article} demandé.")
+
+        resultats["Statut"] = "Conforme"
+
+        colonnes_finales = [
+            "Statut", "numero de decision", "nom de l'intime",
+            "articles enfreints", "duree totale effective radiation",
+            "article amende/chef", "autres sanctions"
+        ]
+
+        if "resume" in resultats.columns:
+            colonnes_finales.append("resume")
+
+        resultats = resultats[colonnes_finales]
+
+        # Export Excel
+        output = BytesIO()
+        writer = pd.ExcelWriter(output, engine='xlsxwriter')
+        resultats.to_excel(writer, sheet_name='Résultats', index=False)
+        workbook = writer.book
+        worksheet = writer.sheets['Résultats']
+        header_format = workbook.add_format({'bold': True, 'bg_color': '#DDDDDD'})
+        for col_num, value in enumerate(resultats.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+            worksheet.set_column(col_num, col_num, 30)
+
+        for row_num, row in resultats.iterrows():
+            for col_num, col in enumerate(resultats.columns):
+                val = row[col]
+                fmt = color_cells(val, article)
+                if fmt:
+                    cell_format = workbook.add_format(fmt)
+                    worksheet.write(row_num + 1, col_num, val, cell_format)
+
+        writer.close()
+        output.seek(0)
+
+        return send_file(output, as_attachment=True, download_name="resultats.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    except Exception as e:
+        return render_template("index.html", erreur=str(e))
 
 
 
