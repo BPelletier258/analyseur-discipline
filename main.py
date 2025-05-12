@@ -1,7 +1,7 @@
 import pandas as pd
 import re
 import unicodedata
-from flask import Flask, request, render_template, send_file
+from flask import Flask, request, render_template
 from io import BytesIO
 import xlsxwriter
 
@@ -19,7 +19,7 @@ def style_article(cell, article):
     if not isinstance(cell, str):
         return cell
     pattern = re.compile(rf'(Art[\.\:]?\s*{re.escape(article)})', re.IGNORECASE)
-    return pattern.sub(r'<span style="color:red;font-weight:bold">\1</span>', cell)
+    return pattern.sub(r'<span style="color:red">\1</span>', cell)
 
 @app.route('/', methods=['GET'])
 def index():
@@ -38,16 +38,16 @@ def analyse():
         df = df.rename(columns=lambda c: normalize_column(c))
 
         required = [
-            "Articles enfreints",
+            "articles enfreints",
             "duree totale effective radiation",
-            "Article amende/chef",
+            "article amande/chef",
             "autres sanctions",
             "nom de l'intime",
             "numero de decision"
         ]
-        for col in required:
-            if col not in df.columns:
-                return render_template('index.html', erreur="Le fichier est incomplet. Merci de vérifier la structure.")
+        missing = [col for col in required if col not in df.columns]
+        if missing:
+            return render_template('index.html', erreur=f"Le fichier est incomplet. Colonnes manquantes : {', '.join(missing)}")
 
         pattern_explicit = rf'\bArt[\.\:]?\s*{re.escape(article)}\b'
         mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
@@ -58,11 +58,11 @@ def analyse():
 
         md_columns = [
             'numero de decision',
-            "nom de l'intime",
-            "Articles enfreints",
-            "duree totale effective radiation",
-            "Article amende/chef",
-            "autres sanctions"
+            'nom de l\'intime',
+            'articles enfreints',
+            'duree totale effective radiation',
+            'article amende/chef',
+            'autres sanctions'
         ]
         display_df = conformes[md_columns]
         markdown_table = display_df.to_markdown(index=False)
@@ -72,7 +72,7 @@ def analyse():
             excel_columns.append('resume')
         excel_df = conformes[excel_columns].copy()
 
-        for col in ["articles enfreints", "duree totale effective radiation", "article amende/chef", "autres sanctions"]:
+        for col in ['articles enfreints', 'duree totale effective radiation', 'article amende/chef', 'autres sanctions']:
             excel_df[col] = excel_df[col].apply(lambda x: style_article(x, article))
 
         output = BytesIO()
@@ -81,7 +81,7 @@ def analyse():
 
         wrap = workbook.add_format({'text_wrap': True, 'valign': 'top'})
         header = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3'})
-        rouge = workbook.add_format({'bg_color': '#FFC7CE', 'text_wrap': True})
+        rouge = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#000000', 'text_wrap': True})
 
         for idx, col_name in enumerate(excel_df.columns):
             worksheet.write(0, idx, col_name, header)
@@ -99,18 +99,14 @@ def analyse():
         workbook.close()
         output.seek(0)
 
-        excel_data = output.read()
-        return render_template('resultats.html',
-                               table_markdown=markdown_table,
-                               fichier_excel=excel_data,
-                               filename=f"resultats_article_{article}.xlsx"
-        )
+        return render_template('resultats.html', table_markdown=markdown_table, fichier_excel=output.read(), filename=f"resultats_article_{article}.xlsx")
 
     except Exception as e:
         return render_template('index.html', erreur=str(e))
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
