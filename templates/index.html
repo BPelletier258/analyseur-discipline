@@ -21,24 +21,16 @@
             margin-top: 10px;
             margin-right: 10px;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
+        .table-wrapper {
+            overflow-x: auto;
             margin-top: 30px;
             font-size: 0.95em;
         }
-        th, td {
-            border: 1px solid #ccc;
-            padding: 10px;
-            text-align: left;
-            vertical-align: top;
-        }
-        th {
-            background-color: #e0e0e0;
-        }
-        .rouge {
-            color: red;
-            font-weight: bold;
+        .table-wrapper pre {
+            line-height: 1.5;
+            background-color: #fff;
+            padding: 15px;
+            border: 1px solid #ddd;
         }
         .message-erreur {
             color: red;
@@ -46,9 +38,6 @@
         }
         .telechargement {
             margin-top: 20px;
-        }
-        .table-wrapper {
-            overflow-x: auto;
         }
     </style>
 </head>
@@ -69,19 +58,20 @@
         <button type="submit">Analyser</button>
     </form>
 
-    {% if markdown %}
+    {% if table_markdown %}
         <div class="table-wrapper">
-            <pre style="line-height: 1.5;">{{ markdown }}</pre>
+            <pre>{{ table_markdown }}</pre>
         </div>
     {% endif %}
 
     {% if fichier_excel %}
         <div class="telechargement">
-            <a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{{ fichier_excel | b64encode }}" download="résultats.xlsx">Télécharger le fichier Excel</a>
+            <a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{{ fichier_excel | b64encode }}" download="{{ filename }}">Télécharger le fichier Excel</a>
         </div>
     {% endif %}
 </body>
 </html>
+
 
 
 
