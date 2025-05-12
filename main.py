@@ -38,9 +38,9 @@ def analyse():
         df = df.rename(columns=lambda c: normalize_column(c))
 
         required = [
-            "articles enfreints",
+            "Articles enfreints",
             "duree totale effective radiation",
-            "article amende/chef",
+            "Article amende/chef",
             "autres sanctions",
             "nom de l'intime",
             "numero de decision"
@@ -59,9 +59,9 @@ def analyse():
         md_columns = [
             'numero de decision',
             "nom de l'intime",
-            "articles enfreints",
+            "Articles enfreints",
             "duree totale effective radiation",
-            "article amende/chef",
+            "Article amende/chef",
             "autres sanctions"
         ]
         display_df = conformes[md_columns]
