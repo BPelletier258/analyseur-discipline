@@ -55,10 +55,15 @@ def analyse():
     if df_filtered.empty:
         return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
 
-    # Debug: afficher les décisions filtrées
-    print(df_filtered[['numero de decision', 'articles enfreints']])  # Vérifier les lignes retenues
+        # Markdown (colonnes requises)
+    md_df = df_filtered[required].copy().reset_index(drop=True)
+    markdown_table = md_df.to_markdown(index=False)
 
-    # Markdown
+    # Excel: colonnes requises + résumé si existant
+    cols = required + (['resume'] if 'resume' in df_filtered.columns else [])
+    excel_df = df_filtered[cols].copy().reset_index(drop=True)
+
+    output = BytesIO()
     md_df = df_filtered.filter(required)
     # Supprimer toute colonne vide
     md_df = md_df.loc[:, [col for col in md_df.columns if col.strip()]]
@@ -105,6 +110,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
