@@ -29,49 +29,41 @@ def analyse():
     if not file or not article:
         return render_template('index.html', erreur="Veuillez fournir un fichier Excel et un article.")
 
-    # Lecture et normalisation des colonnes
-    df = pd.read_excel(file)
+    # Lecture et normalisation des colonnes (évite index implicite)
+    df = pd.read_excel(file, index_col=None)
     df.columns = [normalize_column(c) for c in df.columns]
-    # Supprimer colonnes vides ou non nommées
-    df = df.loc[:, df.columns.astype(bool)]
+    # Retirer colonnes vides ou générées (unnamed)
+    df = df.loc[:, [c for c in df.columns if c and not c.startswith('unnamed')]]
 
-    # Vérification des colonnes pour le Markdown
+    # Assurer une seule colonne resume
+    # normalisation produit 'resume' pour 'Résumé'
+    if df.columns.tolist().count('resume') > 1:
+        cols = [c for c in df.columns if c != 'resume'] + ['resume']
+        df = df[cols]
+
+    # Colonnes obligatoires pour Markdown
     required = [
-        'numero de decision',
-        'nom de lintime',
-        'articles enfreints',
-        'duree totale effective radiation',
-        'article amende/chef',
-        'autres sanctions'
+      'numero de decision', 'nom de lintime', 'articles enfreints',
+      'duree totale effective radiation', 'article amende/chef', 'autres sanctions'
     ]
     missing = [c for c in required if c not in df.columns]
     if missing:
         return render_template('index.html', erreur=f"Le fichier est incomplet. Colonnes manquantes : {', '.join(missing)}")
 
-    # Regex strict pour éviter 114, 149.1...
-    pattern = re.compile(
-        rf'(?<!\d)Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)',
-        flags=re.IGNORECASE
-    )
+    # Regex strict pour l'article
+    pattern = re.compile(rf'(?<!\d)Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)', re.IGNORECASE)
 
-    # Filtrage précis sur la colonne articles enfreints
-    mask = df['articles enfreints'].astype(str).str.contains(pattern, na=False)
-    conformes = df[mask].copy()
+    # Filtrage précis
+    mask = df['articles enfreints'].astype(str).apply(lambda x: bool(pattern.search(x)))
+    conformes = df[mask].reset_index(drop=True)
     if conformes.empty:
         return render_template('index.html', erreur=f"Aucun intime trouvé pour l'article {article} demandé.")
 
-    # Construction du Markdown (ordre et colonnes strictes)
-    display_df = conformes[required].reset_index(drop=True)
-    markdown_table = display_df.to_markdown(index=False)
+    # Markdown ordonné
+    markdown_table = conformes[required].to_markdown(index=False)
 
-    # Préparation Excel : conserver toutes les colonnes, supprimer doublons et colonnes vides
-    excel_df = conformes.reset_index(drop=True)
-    # Supprimer colonnes vides
-    excel_df = excel_df.loc[:, excel_df.columns.astype(bool)]
-    # Si double colonne 'resume', ne garder qu'une
-    if excel_df.columns.tolist().count('resume') > 1:
-        cols = [c for c in excel_df.columns if c != 'resume'] + ['resume']
-        excel_df = excel_df[cols]
+    # Préparation Excel complet
+    excel_df = conformes.copy()
 
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {'in_memory': True})
@@ -80,24 +72,22 @@ def analyse():
     # Formats
     wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
     header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3'})
-    red_text = workbook.add_format({'font_color': '#FF0000', 'text_wrap': True})
+    red_fmt = workbook.add_format({'font_color': '#FF0000', 'text_wrap': True})
 
-    # Écriture des en-têtes
-    for idx, col in enumerate(excel_df.columns):
-        worksheet.write(0, idx, col, header_fmt)
-        worksheet.set_column(idx, idx, 30)
+    # En-têtes
+    for i, col in enumerate(excel_df.columns):
+        worksheet.write(0, i, col, header_fmt)
+        worksheet.set_column(i, i, 30)
 
-    # Écriture des données
+    # Lignes
     for r, row in enumerate(excel_df.itertuples(index=False), start=1):
         for c, val in enumerate(row):
             txt = str(val)
             col_name = excel_df.columns[c]
             if col_name == 'resume':
-                # Lien uniformisé
-                worksheet.write_url(r, c, txt, string='Résumé', cell_format=red_text)
-            elif pattern.search(unicodedata.normalize('NFKD', txt)):
-                # Coloration du texte seulement
-                worksheet.write(r, c, txt, red_text)
+                worksheet.write_url(r, c, txt, string='Résumé', cell_format=red_fmt)
+            elif bool(pattern.search(txt)):
+                worksheet.write(r, c, txt, red_fmt)
             else:
                 worksheet.write(r, c, txt, wrap_fmt)
 
@@ -113,6 +103,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
