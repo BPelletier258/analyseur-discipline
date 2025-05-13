@@ -59,8 +59,11 @@ def analyse():
     if conformes.empty:
         return render_template('index.html', erreur=f"Aucun intime trouvé pour l'article {article} demandé.")
 
-    # Markdown ordonné
-    markdown_table = conformes[required].to_markdown(index=False)
+        # Markdown ordonné: sélectionner colonnes requises et retirer noms vides
+    display_df = conformes[required].copy().reset_index(drop=True)
+    # Éliminer toute colonne vide dans Markdown
+    display_df = display_df.loc[:, display_df.columns.astype(bool)]
+    markdown_table = display_df.to_markdown(index=False)
 
     # Préparation Excel complet
     excel_df = conformes.copy()
@@ -103,6 +106,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
