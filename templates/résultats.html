@@ -6,21 +6,29 @@
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; background-color: #f9f9f9; }
         h1 { color: #222; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; background-color: #fff; }
-        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        a { display: inline-block; margin-top: 20px; text-decoration: none; color: #0066cc; }
+        .table-wrapper { width: 100%; overflow-x: auto; margin-top: 20px; background: #fff; }
+        .table-wrapper pre { margin: 0; padding: 15px; border: 1px solid #ddd; line-height: 1.4; }
+        .telechargement { margin-top: 20px; }
+        .telechargement a { text-decoration: none; color: #0066cc; font-weight: bold; }
+        a.back { display: inline-block; margin-top: 30px; text-decoration: none; color: #0066cc; }
     </style>
 </head>
 <body>
     <h1>📄 Résultats pour l'article {{ article }}</h1>
 
-    {% for table in tables %}
-        {{ table | safe }}
-    {% endfor %}
+    {% if table_markdown %}
+    <div class="table-wrapper">
+        <pre>{{ table_markdown }}</pre>
+    </div>
+    {% endif %}
 
-    <a href="/">← Nouvelle recherche</a>
+    {% if fichier_excel %}
+    <div class="telechargement">
+        <a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{{ fichier_excel | b64encode }}" download="{{ filename }}">⬇ Télécharger le fichier Excel</a>
+    </div>
+    {% endif %}
+
+    <a href="/" class="back">← Nouvelle recherche</a>
 </body>
 </html>
 
-</html>
