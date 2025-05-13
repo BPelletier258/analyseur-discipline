@@ -29,35 +29,41 @@ def analyse():
     if not file or not article:
         return render_template('index.html', erreur="Veuillez fournir un fichier Excel et un article.")
 
+    # Lecture et nettoyage des colonnes
     df = pd.read_excel(file, index_col=None)
-    # Normaliser et nettoyer colonnes
     df.columns = [normalize_column(c) for c in df.columns]
     df = df.loc[:, [c for c in df.columns if c and not c.startswith('unnamed')]]
 
-    # Colonnes obligatoires pour Markdown et Excel
+    # Vérification des colonnes obligatoires
     required = [
         'numero de decision', 'nom de lintime', 'articles enfreints',
         'duree totale effective radiation', 'article amende/chef', 'autres sanctions'
     ]
-    # Vérifier présence des colonnes
     missing = [c for c in required if c not in df.columns]
     if missing:
-        return render_template('index.html', erreur=f"Le fichier est incomplet. Colonnes manquantes : {', '.join(missing)}")
+        return render_template('index.html', erreur=f"Le fichier est incomplet. Colonnes manquantes : {', '.join(missing)}")
 
-    # Regex strict pour l'article (évite 114,149.1...)
-    pattern = re.compile(rf'(?<!\d)Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)', re.IGNORECASE)
+    # Regex très strict pour l'article (évite 114, 149.1, etc.)
+    pattern = re.compile(
+        rf'(?<![\d\.])Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)',
+        flags=re.IGNORECASE
+    )
 
-    # Filtrer précis
-    mask = df['articles enfreints'].astype(str).apply(lambda x: bool(pattern.search(x)))
+    # Filtrage précis avec normalisation du contenu
+    def match_article(text):
+        norm = unicodedata.normalize('NFKD', str(text))
+        return bool(pattern.search(norm))
+
+    mask = df['articles enfreints'].apply(match_article)
     conformes = df.loc[mask].reset_index(drop=True)
     if conformes.empty:
         return render_template('index.html', erreur=f"Aucun intime trouvé pour l'article {article} demandé.")
 
-    # Génération du Markdown (colonnes req dans l'ordre)
+    # Génération du Markdown (colonnes requises dans l'ordre)
     display_df = conformes[required].copy().reset_index(drop=True)
     markdown_table = display_df.to_markdown(index=False)
 
-    # Préparation du fichier Excel (que colonnes req + resume)
+    # Préparation du fichier Excel (colonnes requises + résumé)
     excel_cols = required + (['resume'] if 'resume' in conformes.columns else [])
     excel_df = conformes[excel_cols].reset_index(drop=True)
 
@@ -68,21 +74,21 @@ def analyse():
     # Formats
     wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
     header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3'})
-    red_text = workbook.add_format({'font_color': '#FF0000', 'text_wrap': True})
+    red_text = workbook.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
 
-    # En-têtes et largeur
+    # Écriture des en-têtes
     for idx, col in enumerate(excel_df.columns):
         worksheet.write(0, idx, col, header_fmt)
         worksheet.set_column(idx, idx, 30)
 
-    # Lignes et mise en forme
+    # Écriture des données
     for r, row in enumerate(excel_df.itertuples(index=False), start=1):
         for c, val in enumerate(row):
             txt = str(val)
             col_name = excel_df.columns[c]
             if col_name == 'resume':
                 worksheet.write_url(r, c, txt, string='Résumé', cell_format=wrap_fmt)
-            elif pattern.search(txt):
+            elif col_name in required and match_article(txt):
                 worksheet.write(r, c, txt, red_text)
             else:
                 worksheet.write(r, c, txt, wrap_fmt)
@@ -99,6 +105,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
