@@ -30,7 +30,6 @@ def analyse():
     # Lecture et nettoyage des colonnes
     df = pd.read_excel(file)
     df.columns = [normalize_column(c) for c in df.columns]
-    # Garder uniquement colonnes non vides et non 'unnamed'
     df = df.loc[:, [c for c in df.columns if c and not c.startswith('unnamed')]]
 
     # Colonnes obligatoires
@@ -38,66 +37,55 @@ def analyse():
         'numero de decision', 'nom de lintime', 'articles enfreints',
         'duree totale effective radiation', 'article amende/chef', 'autres sanctions'
     ]
-    # Vérification
     missing = [c for c in required if c not in df.columns]
     if missing:
         return render_template('index.html', erreur=f"Colonnes manquantes : {', '.join(missing)}")
 
-    # Regex strict
-    pattern = re.compile(rf'(?<![\d\.])Art[\.:]?\s*{re.escape(article)}(?=[\W]|$)', re.IGNORECASE)
+    # Regex strict pour l'article
+    pattern = re.compile(
+        rf'(?<![\d\.])Art[\.:]?\s*{re.escape(article)}(?=[\W]|$)',
+        re.IGNORECASE
+    )
 
-    # Filtrage
     def match_art(x):
         txt = unicodedata.normalize('NFKD', str(x))
         return bool(pattern.search(txt))
 
+    # Filtrage des décisions
     df_filtered = df[df['articles enfreints'].apply(match_art)].reset_index(drop=True)
     if df_filtered.empty:
         return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
 
-        # Markdown (colonnes requises)
+    # Génération du Markdown
     md_df = df_filtered[required].copy().reset_index(drop=True)
     markdown_table = md_df.to_markdown(index=False)
 
-    # Excel: colonnes requises + résumé si existant
+    # Préparation du fichier Excel
     cols = required + (['resume'] if 'resume' in df_filtered.columns else [])
     excel_df = df_filtered[cols].copy().reset_index(drop=True)
 
     output = BytesIO()
-    md_df = df_filtered.filter(required)
-    # Supprimer toute colonne vide
-    md_df = md_df.loc[:, [col for col in md_df.columns if col.strip()]]
-    markdown_table = md_df.to_markdown(index=False)
-
-    # Excel: same columns + resume
-    cols = required + (['resume'] if 'resume' in df_filtered.columns else [])
-    excel_df = df_filtered.filter(cols)
- + resume
-    cols = required + (['resume'] if 'resume' in df_filtered.columns else [])
-    excel_df = df_filtered.filter(cols)
-
-    output = BytesIO()
     wb = xlsxwriter.Workbook(output, {'in_memory': True})
-    ws = wb.add_worksheet()
+    ws = wb.add_worksheet('Résultats')
 
     # Formats
     fmt_wrap = wb.add_format({'text_wrap': True, 'valign': 'top'})
     fmt_hdr = wb.add_format({'bold': True, 'bg_color': '#D3D3D3'})
-    fmt_red = wb.add_format({'font_color': '#FF0000', 'text_wrap': True})
+    fmt_red = wb.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
 
-    # En-têtes
+    # Écriture des en-têtes
     for i, col in enumerate(excel_df.columns):
         ws.write(0, i, col, fmt_hdr)
         ws.set_column(i, i, 30)
 
-    # Contenu
-    for r, row in enumerate(excel_df.itertuples(index=False), 1):
+    # Écriture des données
+    for r, row in enumerate(excel_df.itertuples(index=False), start=1):
         for c, val in enumerate(row):
             txt = str(val)
-            col = excel_df.columns[c]
-            if col == 'resume':
+            col_name = excel_df.columns[c]
+            if col_name == 'resume':
                 ws.write_url(r, c, txt, string='Résumé', cell_format=fmt_wrap)
-            elif col in required and match_art(txt):
+            elif col_name in required and match_art(txt):
                 ws.write(r, c, txt, fmt_red)
             else:
                 ws.write(r, c, txt, fmt_wrap)
@@ -105,11 +93,16 @@ def analyse():
     wb.close()
     output.seek(0)
 
-    return render_template('resultats.html', table_markdown=markdown_table,
-                           fichier_excel=output.read(), filename=f"resultats_{article}.xlsx")
+    return render_template(
+        'resultats.html',
+        table_markdown=markdown_table,
+        fichier_excel=output.read(),
+        filename=f"resultats_article_{article}.xlsx"
+    )
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
