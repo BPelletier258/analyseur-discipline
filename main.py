@@ -18,7 +18,6 @@ def normalize_column(col_name):
 def style_article(cell, article):
     if not isinstance(cell, str):
         return cell
-    # style span without altering text color
     pattern = re.compile(rf'(Art[\.:]?\s*{re.escape(article)})(?=[\s\W]|$)', re.IGNORECASE)
     return pattern.sub(r'<span style="background-color:#FFC7CE; font-weight:bold">\1</span>', cell)
 
@@ -35,9 +34,9 @@ def analyse():
         return render_template('index.html', erreur="Veuillez fournir un fichier Excel et un article.")
 
     df = pd.read_excel(file)
-    # normaliser entêtes et supprimer colonnes non nommées
+    # Normaliser entêtes et supprimer colonnes vides ou non nommées
     df.columns = [normalize_column(c) for c in df.columns]
-    df = df.loc[:, [c for c in df.columns if not c.startswith('unnamed')]]
+    df = df.loc[:, [c for c in df.columns if c and not c.startswith('unnamed')]]
 
     required = [
         "numero de decision",
@@ -51,7 +50,7 @@ def analyse():
     if missing:
         return render_template('index.html', erreur=f"Le fichier est incomplet. Colonnes manquantes : {', '.join(missing)}")
 
-    # recherche précise de l'article
+    # Recherche précise de l'article
     pattern_explicit = rf'Art[\.:]?\s*{re.escape(article)}(?=[\s\W]|$)'
     mask = df['articles enfreints'].astype(str).str.contains(pattern_explicit, na=False, flags=re.IGNORECASE)
     conformes = df.loc[mask, :].copy()
@@ -59,43 +58,38 @@ def analyse():
     if conformes.empty:
         return render_template('index.html', erreur=f"Aucun intime trouvé pour l'article {article} demandé.")
 
-    # préparation Markdown
-    display_df = conformes[required].copy().reset_index(drop=True)
+    # Préparation du Markdown: ordre strict et suppression de toute colonne parasite
+    display_df = conformes[required].reset_index(drop=True)
     markdown_table = display_df.to_markdown(index=False)
 
-    # préparation Excel
-    excel_columns = required.copy()
-    if 'resume' in df.columns:
-        excel_columns.append('resume')
-    excel_df = conformes[excel_columns].copy().reset_index(drop=True)
+    # Préparation Excel: conserver toutes les colonnes pour l'instant
+    excel_df = conformes.reset_index(drop=True)
 
     output = BytesIO()
     workbook = xlsxwriter.Workbook(output, {'in_memory': True})
     worksheet = workbook.add_worksheet('Résultats')
 
-    # formats
+    # Formats
     wrap = workbook.add_format({'text_wrap': True, 'valign': 'top'})
     header = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3'})
     red_bg = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#000000', 'text_wrap': True})
 
-    # écriture en-têtes et largeur
+    # Écriture des en-têtes et définition de la largeur fixe
     for idx, col in enumerate(excel_df.columns):
         worksheet.write(0, idx, col, header)
-        width = 60 if 2 <= idx <= 5 else 30
-        worksheet.set_column(idx, idx, width)
+        worksheet.set_column(idx, idx, 30)
 
-    # écriture lignes
-    for r, row in enumerate(excel_df.itertuples(index=False), start=1):
-        for c, val in enumerate(row):
-            txt = str(val)
+    # Écriture des données avec mise en forme conditionnelle
+    for row_num, row in enumerate(excel_df.itertuples(index=False), start=1):
+        for col_num, value in enumerate(row):
+            txt = str(value)
             if re.search(pattern_explicit, unicodedata.normalize('NFKD', txt), flags=re.IGNORECASE):
-                if df.columns[c] == 'resume':
-                    # lien hypertexte uniforme
-                    worksheet.write_url(r, c, txt, string='Résumé', cell_format=red_bg)
+                if excel_df.columns[col_num] == 'resume':
+                    worksheet.write_url(row_num, col_num, txt, string='Résumé', cell_format=red_bg)
                 else:
-                    worksheet.write(r, c, txt, red_bg)
+                    worksheet.write(row_num, col_num, txt, red_bg)
             else:
-                worksheet.write(r, c, txt, wrap)
+                worksheet.write(row_num, col_num, txt, wrap)
 
     workbook.close()
     output.seek(0)
@@ -108,6 +102,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
