@@ -27,12 +27,12 @@ def analyse():
     if not file or not article:
         return render_template('index.html', erreur="Veuillez fournir un fichier Excel et un article.")
 
-    # Lecture et nettoyage des colonnes
+    # Lecture et normalisation des colonnes
     df = pd.read_excel(file)
     df.columns = [normalize_column(c) for c in df.columns]
     df = df.loc[:, [c for c in df.columns if c and not c.startswith('unnamed')]]
 
-    # Colonnes obligatoires
+    # Définir les colonnes obligatoires
     required = [
         'numero de decision', 'nom de lintime', 'articles enfreints',
         'duree totale effective radiation', 'article amende/chef', 'autres sanctions'
@@ -41,56 +41,49 @@ def analyse():
     if missing:
         return render_template('index.html', erreur=f"Colonnes manquantes : {', '.join(missing)}")
 
-    # Regex strict pour l'article
-    pattern = re.compile(
-        rf'(?<![\d\.])Art[\.:]?\s*{re.escape(article)}(?=[\W]|$)',
-        re.IGNORECASE
-    )
+    # Regex strict pour l'article (évite 114, 149.1, etc.)
+    pattern = re.compile(rf'(?<![\d\.])Art[\.:]?\s*{re.escape(article)}(?=[\W]|$)', re.IGNORECASE)
 
-    def match_art(x):
-        txt = unicodedata.normalize('NFKD', str(x))
-        return bool(pattern.search(txt))
+    def match_art(cell):
+        text = unicodedata.normalize('NFKD', str(cell))
+        return bool(pattern.search(text))
 
-    # Filtrage des décisions
+    # Filtrer les décisions pertinentes
     df_filtered = df[df['articles enfreints'].apply(match_art)].reset_index(drop=True)
     if df_filtered.empty:
         return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
 
-    # Génération du Markdown
-    md_df = df_filtered[required].copy().reset_index(drop=True)
+    # Génération du tableau Markdown (colonnes requises)
+    md_df = df_filtered[required]
     markdown_table = md_df.to_markdown(index=False)
 
-    # Préparation du fichier Excel
-    cols = required + (['resume'] if 'resume' in df_filtered.columns else [])
-    excel_df = df_filtered[cols].copy().reset_index(drop=True)
+    # Génération du fichier Excel (colonnes requises uniquement)
+    excel_df = df_filtered[required]
 
     output = BytesIO()
-    wb = xlsxwriter.Workbook(output, {'in_memory': True})
-    ws = wb.add_worksheet('Résultats')
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    worksheet = workbook.add_worksheet('Résultats')
 
     # Formats
-    fmt_wrap = wb.add_format({'text_wrap': True, 'valign': 'top'})
-    fmt_hdr = wb.add_format({'bold': True, 'bg_color': '#D3D3D3'})
-    fmt_red = wb.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
+    wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+    header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3'})
+    red_fmt = workbook.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
 
-    # Écriture des en-têtes
-    for i, col in enumerate(excel_df.columns):
-        ws.write(0, i, col, fmt_hdr)
-        ws.set_column(i, i, 30)
+    # Écrire les en-têtes
+    for col_idx, col_name in enumerate(excel_df.columns):
+        worksheet.write(0, col_idx, col_name, header_fmt)
+        worksheet.set_column(col_idx, col_idx, 30)
 
-    # Écriture des données
-    for r, row in enumerate(excel_df.itertuples(index=False), start=1):
-        for c, val in enumerate(row):
-            txt = str(val)
-            col_name = excel_df.columns[c]
-            if col_name == 'resume':
-                ws.write_url(r, c, txt, string='Résumé', cell_format=fmt_wrap)
-            elif col_name in required and match_art(txt):
-                ws.write(r, c, txt, fmt_red)
+    # Écrire les données
+    for row_idx, row in enumerate(excel_df.itertuples(index=False), start=1):
+        for col_idx, value in enumerate(row):
+            text = str(value)
+            if match_art(text):
+                worksheet.write(row_idx, col_idx, text, red_fmt)
             else:
-                ws.write(r, c, txt, fmt_wrap)
+                worksheet.write(row_idx, col_idx, text, wrap_fmt)
 
-    wb.close()
+    workbook.close()
     output.seek(0)
 
     return render_template(
@@ -102,6 +95,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
