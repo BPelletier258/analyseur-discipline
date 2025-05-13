@@ -55,7 +55,11 @@ def analyse():
     if df_filtered.empty:
         return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
 
-    # Markdown
+        # Markdown
+    md_df = df_filtered.filter(required)
+    # Supprimer toute colonne vide
+    md_df = md_df.loc[:, [col for col in md_df.columns if col.strip()]]
+    markdown_table = md_df.to_markdown(index=False)
     md_df = df_filtered.filter(required)
     markdown_table = md_df.to_markdown(index=False)
 
@@ -97,6 +101,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
