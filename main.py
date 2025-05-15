@@ -26,16 +26,16 @@ def index():
 
 @app.route('/analyse', methods=['POST'])
 def analyse():
-    file = request.files.get('file') or request.files.get('fichier_excel')
+    uploaded = request.files.get('file') or request.files.get('fichier_excel')
     article = request.form.get('article', '').strip()
-
-    if not file or not article:
+    if not uploaded or not article:
         return render_template('index.html', erreur="Veuillez fournir un fichier Excel et un article.")
 
     # Lecture et normalisation des colonnes
-    df = pd.read_excel(file)
+    df = pd.read_excel(uploaded)
     df.columns = [normalize_column(c) for c in df.columns]
-    df = df.loc[:, [c for c in df.columns if c and not c.startswith('unnamed')]]
+    # Supprimer les colonnes vides ou parasites
+    df = df.drop(columns=[c for c in df.columns if c.startswith('unnamed') or c == 'resume'], errors='ignore')
 
     # Colonnes obligatoires
     required = [
@@ -46,55 +46,51 @@ def analyse():
     if missing:
         return render_template('index.html', erreur=f"Colonnes manquantes : {', '.join(missing)}")
 
-    # Afficher avant filtrage
-    logger.debug("DEBUG ➜ Total lignes avant filtrage: %d", len(df))
-    logger.debug("DEBUG ➜ Articles enfreints uniques avant: %d", df['articles enfreints'].nunique())
+    # Debug avant filtre
+    logger.debug("Total lignes avant filtrage: %d", len(df))
 
-    # Regex strict pour l'article (évite 114, 149.1, etc.)
+    # Regex strict pour l'article
     pattern = re.compile(rf'(?<![\d\.])Art[\.:]?\s*{re.escape(article)}(?=[\W]|$)', re.IGNORECASE)
-
     def match_art(cell):
         text = unicodedata.normalize('NFKD', str(cell))
         return bool(pattern.search(text))
 
-    # Filtrage
+    # Filtrage précis
     df_filtered = df[df['articles enfreints'].apply(match_art)].reset_index(drop=True)
-    logger.debug("DEBUG ➜ Lignes retenues après filtrage pour 'Art. %s': %d", article, len(df_filtered))
-    logger.debug("DEBUG ➜ Contenu filtré: %s", df_filtered[['numero de decision', 'articles enfreints']].to_dict(orient='records'))
-
+    logger.debug("Lignes retenues: %d", len(df_filtered))
+    logger.debug("Décisions filtrées: %s", df_filtered['numero de decision'].tolist())
     if df_filtered.empty:
         return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
 
-    # Génération du tableau Markdown
+    # Génération du Markdown (colonnes requises)
     md_df = df_filtered[required]
     markdown_table = md_df.to_markdown(index=False)
 
-    # Préparation du fichier Excel
+    # Préparation du fichier Excel (colonnes requises)
     excel_df = df_filtered[required]
-    logger.debug("DEBUG ➜ Colonnes Excel: %s", list(excel_df.columns))
 
     output = BytesIO()
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
-    worksheet = workbook.add_worksheet('Résultats')
+    wb = xlsxwriter.Workbook(output, {'in_memory': True})
+    ws = wb.add_worksheet('Résultats')
 
     # Formats
-    wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
-    header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3'})
-    red_fmt = workbook.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
+    wrap_fmt = wb.add_format({'text_wrap': True, 'valign': 'top'})
+    hdr_fmt  = wb.add_format({'bold': True, 'bg_color': '#D3D3D3'})
+    red_fmt  = wb.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
 
-    # Écrire les en-têtes
-    for col_idx, col_name in enumerate(excel_df.columns):
-        worksheet.write(0, col_idx, col_name, header_fmt)
-        worksheet.set_column(col_idx, col_idx, 30)
+    # Entêtes
+    for idx, col in enumerate(excel_df.columns):
+        ws.write(0, idx, col, hdr_fmt)
+        ws.set_column(idx, idx, 30)
 
-    # Écrire les données
-    for row_idx, row in enumerate(excel_df.itertuples(index=False), start=1):
-        for col_idx, value in enumerate(row):
-            text = str(value)
-            fmt = red_fmt if match_art(text) else wrap_fmt
-            worksheet.write(row_idx, col_idx, text, fmt)
+    # Valeurs
+    for r, row in enumerate(excel_df.itertuples(index=False), start=1):
+        for c, val in enumerate(row):
+            txt = str(val)
+            fmt = red_fmt if match_art(txt) else wrap_fmt
+            ws.write(r, c, txt, fmt)
 
-    workbook.close()
+    wb.close()
     output.seek(0)
 
     return render_template(
@@ -106,6 +102,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
