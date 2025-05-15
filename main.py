@@ -1,3 +1,4 @@
+```python
 import pandas as pd
 import re
 import unicodedata
@@ -37,8 +38,8 @@ def analyse():
     df = pd.read_excel(uploaded)
     # Normalisation des colonnes
     df.columns = [normalize_column(c) for c in df.columns]
-    # Suppression colonnes parasites (Unnamed, resume)
-    df = df.loc[:, ~df.columns.str.contains(r'^(unnamed|resume)', case=False)]
+    # Suppression des colonnes parasites (Unnamed, resume, résumé)
+    df = df.loc[:, ~df.columns.str.contains(r'^(unnamed|resume|résumé)$', case=False)]
 
     # Colonnes attendues
     required = [
@@ -63,7 +64,7 @@ def analyse():
     if filtered.empty:
         return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
 
-    # Génération Markdown (une seule table au format GitHub)
+    # Génération Markdown (format GitHub, une seule table)
     md_df = filtered[required]
     markdown_table = md_df.to_markdown(index=False, tablefmt='github')
 
@@ -79,8 +80,8 @@ def analyse():
 
     # Écriture des en-têtes et ajustement colonnes
     for idx, col in enumerate(required):
-        ws.write(0, idx, col.capitalize(), header_fmt)
-        ws.set_column(idx, idx, 25)
+        ws.write(0, idx, col.title(), header_fmt)
+        ws.set_column(idx, idx, 30)
 
     # Écriture des données filtrées uniquement
     for r, row in enumerate(filtered[required].itertuples(index=False), start=1):
@@ -100,6 +101,8 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+```
+
 
 
 
