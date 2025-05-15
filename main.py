@@ -1,4 +1,4 @@
-```python
+python
 import pandas as pd
 import re
 import unicodedata
@@ -101,7 +101,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
-```
+
 
 
 
