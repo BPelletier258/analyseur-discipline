@@ -1,4 +1,3 @@
-
 import pandas as pd
 import re
 import unicodedata
@@ -7,97 +6,107 @@ from flask import Flask, request, render_template
 from io import BytesIO
 import xlsxwriter
 
-# Logger pour debugging\logging.basicConfig(level=logging.DEBUG)
+# Logger pour debug
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-def normalize_column(col_name):
-    if isinstance(col_name, str):
-        col = unicodedata.normalize('NFKD', col_name)
+
+def normalize_column(name):
+    if isinstance(name, str):
+        col = unicodedata.normalize('NFKD', name)
         col = col.encode('ASCII', 'ignore').decode('utf-8')
         col = col.replace("’", "'")
         col = re.sub(r"\s+", " ", col).strip().lower()
         return col
-    return col_name
+    return name
+
 
 @app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')
 
+
 @app.route('/analyse', methods=['POST'])
 def analyse():
-    # Récupération du fichier et de l'article
+    # fichier + article
     uploaded = request.files.get('file') or request.files.get('fichier_excel')
     article = request.form.get('article', '').strip()
     if not uploaded or not article:
         return render_template('index.html', erreur="Veuillez fournir un fichier Excel et un article.")
 
-    # Lecture et normalisation des colonnes
+    # lecture + normalisation
     df = pd.read_excel(uploaded)
     df.columns = [normalize_column(c) for c in df.columns]
-    # Suppression de toute colonne contenant "resume" ou "unnamed"
-    df = df.loc[:, ~df.columns.str.contains(r'resum|unnamed', case=False)]
 
-    # Rename pour cohérence
-    df = df.rename(columns={'nom de lintime': "nom de l'intime"})
+    # supprime colonnes inutiles
+    drop_mask = df.columns.str.contains(r'resum|unnamed', case=False)
+    df = df.loc[:, ~drop_mask]
 
-    # Vérification des colonnes essentielles
+    # renames
+    mapping = {
+        'nom de lintime': "nom de l'intime",
+        'numero de decision': 'numero de decision',
+        'ordre professionnel': 'ordre professionnel'
+    }
+    df.rename(columns=mapping, inplace=True)
+
+    # colonnes obligatoires
     required = [
-        'numero de decision', "nom de l'intime", 'articles enfreints',
-        'duree totale effective radiation', 'article amende/chef', 'autres sanctions'
+        'numero de decision', "nom de l'intime", 'ordre professionnel',
+        'articles enfreints', 'duree totale effective radiation',
+        'article amende/chef', 'autres sanctions'
     ]
     missing = [c for c in required if c not in df.columns]
     if missing:
         return render_template('index.html', erreur=f"Colonnes manquantes : {', '.join(missing)}")
 
-    logger.debug("Total lignes avant filtre : %d", len(df))
-
-    # Pattern strict pour l'article (évite 114, 149.1, etc.)
-    pattern = re.compile(rf'(?<![\d\.])Art\.?\s*{re.escape(article)}(?=\D|$)', re.IGNORECASE)
-    mask = df['articles enfreints'].astype(str).apply(lambda cell: bool(pattern.search(unicodedata.normalize('NFKD', cell))))
+    logger.debug("Total initial rows: %d", len(df))
+    # filtre exact article
+    pat = re.compile(rf'(?<![\d\.])Art\.?\s*{re.escape(article)}(?=\D|$)', re.IGNORECASE)
+    mask = df['articles enfreints'].astype(str).apply(lambda x: bool(pat.search(x)))
     filtered = df.loc[mask, required].reset_index(drop=True)
-    logger.debug("Lignes après filtre : %d", len(filtered))
+    logger.debug("Filtered rows count: %d", len(filtered))
     if filtered.empty:
         return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
 
-    # Génération Markdown (GitHub)
-    markdown_table = filtered.to_markdown(index=False, tablefmt='github')
+    # Markdown unique
+    md = filtered.to_markdown(index=False, tablefmt='github')
 
-    # Préparation du fichier Excel
-    output = BytesIO()
-    wb = xlsxwriter.Workbook(output, {'in_memory': True})
+    # Excel
+    out = BytesIO()
+    wb = xlsxwriter.Workbook(out, {'in_memory': True})
     ws = wb.add_worksheet('Résultats')
 
-    # Formats
-    header_fmt = wb.add_format({'bold': True, 'bg_color': '#D3D3D3', 'text_wrap': True, 'align': 'center'})
-    wrap_fmt = wb.add_format({'text_wrap': True, 'valign': 'top'})
-    red_fmt = wb.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
+    header = wb.add_format({'bold': True, 'bg_color': '#D3D3D3', 'text_wrap': True, 'align': 'center'})
+    wrap = wb.add_format({'text_wrap': True, 'valign': 'top'})
+    red = wb.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
 
-    # Écriture en-têtes
-    for col_idx, col in enumerate(required):
-        ws.write(0, col_idx, col.title(), header_fmt)
-        ws.set_column(col_idx, col_idx, 25)
+    # entêtes
+    for idx, col in enumerate(required):
+        ws.write(0, idx, col.title(), header)
+        ws.set_column(idx, idx, 30)
 
-    # Écriture des données filtrées uniquement
-    for row_idx, row in filtered.iterrows():
-        for col_idx, col in enumerate(required):
+    # écriture
+    for r, row in filtered.iterrows():
+        for c, col in enumerate(required):
             val = row[col]
-            # Coloration si l'article présent dans la cellule
-            fmt = red_fmt if pattern.search(str(val)) else wrap_fmt
-            ws.write(row_idx+1, col_idx, val, fmt)
+            fmt = red if pat.search(str(val)) else wrap
+            ws.write(r+1, c, val, fmt)
 
     wb.close()
-    output.seek(0)
+    out.seek(0)
 
     return render_template('resultats.html',
-        table_markdown=markdown_table,
-        excel_bytes=output.read(),
+        table_markdown=md,
+        excel_bytes=out.read(),
         filename=f"resultats_article_{article}.xlsx"
     )
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
