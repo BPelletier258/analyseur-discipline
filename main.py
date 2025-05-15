@@ -32,11 +32,13 @@ def analyse():
     if not uploaded or not article:
         return render_template('index.html', erreur="Veuillez fournir un fichier Excel et un article.")
 
-    # Lecture et nettoyage
+    # Lecture du fichier
     df = pd.read_excel(uploaded)
+    # Normalisation des colonnes
     df.columns = [normalize_column(c) for c in df.columns]
-    # Supprimer colonnes parasites
-    df = df.drop(columns=[c for c in df.columns if c.startswith('unnamed')], errors='ignore')
+    # Suppression colonnes parasites (unnamed, resume)
+    drop_cols = [c for c in df.columns if c.startswith('unnamed') or c in ('resume', 'résumé')]
+    df = df.drop(columns=drop_cols, errors='ignore')
 
     # Colonnes attendues
     required = [
@@ -47,55 +49,58 @@ def analyse():
     if missing:
         return render_template('index.html', erreur=f"Colonnes manquantes : {', '.join(missing)}")
 
-    logger.debug("Lignes totales avant filtre : %d", len(df))
+    logger.debug("Total lignes avant filtre : %d", len(df))
 
-    # Pattern strict pour article précis
-    pattern = re.compile(rf'(?<![\d\.])Art[\.:]?\s*{re.escape(article)}(?=[\W]|$)', re.IGNORECASE)
+    # Pattern strict pour article précis (évite 114, 149.1, etc.)
+    pattern = re.compile(rf'(?<![\d\.])Art[\.:]?\s*{re.escape(article)}(?=\D|$)', re.IGNORECASE)
     def match_art(cell):
-        txt = unicodedata.normalize('NFKD', str(cell))
-        return bool(pattern.search(txt))
+        text = unicodedata.normalize('NFKD', str(cell))
+        return bool(pattern.search(text))
 
-    # Filtrage
+    # Filtrage par article
     filtered = df[df['articles enfreints'].apply(match_art)].reset_index(drop=True)
     logger.debug("Lignes après filtre : %d", len(filtered))
     if filtered.empty:
         return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
 
-    # Markdown
+    # Génération Markdown (une seule table)
     md_df = filtered[required]
     markdown_table = md_df.to_markdown(index=False)
 
-    # Préparation Excel
+    # Préparation du fichier Excel
     output = BytesIO()
     wb = xlsxwriter.Workbook(output, {'in_memory': True})
     ws = wb.add_worksheet('Résultats')
 
-    wrap = wb.add_format({'text_wrap': True, 'valign': 'top'})
-    header = wb.add_format({'bold': True, 'bg_color': '#D3D3D3'})
-    red_cell = wb.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
+    # Formats
+    header_fmt = wb.add_format({'bold': True, 'bg_color': '#D3D3D3'})
+    wrap_fmt = wb.add_format({'text_wrap': True, 'valign': 'top'})
+    red_fmt = wb.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
 
-    # Écriture entêtes
-    for col_num, col in enumerate(required):
-        ws.write(0, col_num, col, header)
-        ws.set_column(col_num, col_num, 30)
+    # Écriture des en-têtes et ajustement colonnes
+    for idx, col in enumerate(required):
+        ws.write(0, idx, col, header_fmt)
+        ws.set_column(idx, idx, 30)
 
-    # Écriture données
-    for row_num, row in enumerate(filtered[required].values, start=1):
-        for col_num, val in enumerate(row):
-            fmt = red_cell if match_art(val) else wrap
-            ws.write(row_num, col_num, val, fmt)
+    # Écriture des données
+    for r, row in enumerate(filtered[required].itertuples(index=False), start=1):
+        for c, val in enumerate(row):
+            fmt = red_fmt if match_art(val) else wrap_fmt
+            ws.write(r, c, val, fmt)
 
     wb.close()
     output.seek(0)
 
+    # Envoi vers template
     return render_template('resultats.html',
         table_markdown=markdown_table,
-        fichier_excel=output.read(),
+        excel_bytes=output.read(),
         filename=f"resultats_article_{article}.xlsx"
     )
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
