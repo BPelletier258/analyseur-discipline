@@ -17,7 +17,8 @@ def normalize_column(col_name):
         col = unicodedata.normalize('NFKD', col_name)
         col = col.encode('ASCII', 'ignore').decode('utf-8')
         col = col.replace("’", "'")
-        return re.sub(r'\s+', ' ', col).strip().lower()
+        col = re.sub(r"\s+", " ", col).strip().lower()
+        return col
     return col_name
 
 @app.route('/', methods=['GET'])
@@ -36,9 +37,8 @@ def analyse():
     df = pd.read_excel(uploaded)
     # Normalisation des colonnes
     df.columns = [normalize_column(c) for c in df.columns]
-    # Suppression colonnes parasites (unnamed, resume)
-    drop_cols = [c for c in df.columns if c.startswith('unnamed') or c in ('resume', 'résumé')]
-    df = df.drop(columns=drop_cols, errors='ignore')
+    # Suppression colonnes parasites (Unnamed, resume)
+    df = df.loc[:, ~df.columns.str.contains(r'^(unnamed|resume)', case=False)]
 
     # Colonnes attendues
     required = [
@@ -63,9 +63,9 @@ def analyse():
     if filtered.empty:
         return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
 
-    # Génération Markdown (une seule table)
+    # Génération Markdown (une seule table au format GitHub)
     md_df = filtered[required]
-    markdown_table = md_df.to_markdown(index=False)
+    markdown_table = md_df.to_markdown(index=False, tablefmt='github')
 
     # Préparation du fichier Excel
     output = BytesIO()
@@ -73,16 +73,16 @@ def analyse():
     ws = wb.add_worksheet('Résultats')
 
     # Formats
-    header_fmt = wb.add_format({'bold': True, 'bg_color': '#D3D3D3'})
+    header_fmt = wb.add_format({'bold': True, 'bg_color': '#D3D3D3', 'text_wrap': True, 'align': 'center'})
     wrap_fmt = wb.add_format({'text_wrap': True, 'valign': 'top'})
     red_fmt = wb.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
 
     # Écriture des en-têtes et ajustement colonnes
     for idx, col in enumerate(required):
-        ws.write(0, idx, col, header_fmt)
-        ws.set_column(idx, idx, 30)
+        ws.write(0, idx, col.capitalize(), header_fmt)
+        ws.set_column(idx, idx, 25)
 
-    # Écriture des données
+    # Écriture des données filtrées uniquement
     for r, row in enumerate(filtered[required].itertuples(index=False), start=1):
         for c, val in enumerate(row):
             fmt = red_fmt if match_art(val) else wrap_fmt
@@ -100,6 +100,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
