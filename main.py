@@ -7,8 +7,7 @@ from flask import Flask, request, render_template
 from io import BytesIO
 import xlsxwriter
 
-# Logger pour debugging
-logging.basicConfig(level=logging.DEBUG)
+# Logger pour debugging\logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -34,16 +33,18 @@ def analyse():
     if not uploaded or not article:
         return render_template('index.html', erreur="Veuillez fournir un fichier Excel et un article.")
 
-    # Lecture du fichier
+    # Lecture et normalisation des colonnes
     df = pd.read_excel(uploaded)
-    # Normalisation des colonnes
     df.columns = [normalize_column(c) for c in df.columns]
-    # Suppression des colonnes parasites (Unnamed, resume, résumé)
-    df = df.loc[:, ~df.columns.str.contains(r'^(unnamed|resume|résumé)$', case=False)]
+    # Suppression de toute colonne contenant "resume" ou "unnamed"
+    df = df.loc[:, ~df.columns.str.contains(r'resum|unnamed', case=False)]
 
-    # Colonnes attendues
+    # Rename pour cohérence
+    df = df.rename(columns={'nom de lintime': "nom de l'intime"})
+
+    # Vérification des colonnes essentielles
     required = [
-        'numero de decision', 'nom de lintime', 'articles enfreints',
+        'numero de decision', "nom de l'intime", 'articles enfreints',
         'duree totale effective radiation', 'article amende/chef', 'autres sanctions'
     ]
     missing = [c for c in required if c not in df.columns]
@@ -52,21 +53,16 @@ def analyse():
 
     logger.debug("Total lignes avant filtre : %d", len(df))
 
-    # Pattern strict pour article précis (évite 114, 149.1, etc.)
-    pattern = re.compile(rf'(?<![\d\.])Art[\.:]?\s*{re.escape(article)}(?=\D|$)', re.IGNORECASE)
-    def match_art(cell):
-        text = unicodedata.normalize('NFKD', str(cell))
-        return bool(pattern.search(text))
-
-    # Filtrage par article
-    filtered = df[df['articles enfreints'].apply(match_art)].reset_index(drop=True)
+    # Pattern strict pour l'article (évite 114, 149.1, etc.)
+    pattern = re.compile(rf'(?<![\d\.])Art\.?\s*{re.escape(article)}(?=\D|$)', re.IGNORECASE)
+    mask = df['articles enfreints'].astype(str).apply(lambda cell: bool(pattern.search(unicodedata.normalize('NFKD', cell))))
+    filtered = df.loc[mask, required].reset_index(drop=True)
     logger.debug("Lignes après filtre : %d", len(filtered))
     if filtered.empty:
         return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
 
-    # Génération Markdown (format GitHub, une seule table)
-    md_df = filtered[required]
-    markdown_table = md_df.to_markdown(index=False, tablefmt='github')
+    # Génération Markdown (GitHub)
+    markdown_table = filtered.to_markdown(index=False, tablefmt='github')
 
     # Préparation du fichier Excel
     output = BytesIO()
@@ -78,21 +74,22 @@ def analyse():
     wrap_fmt = wb.add_format({'text_wrap': True, 'valign': 'top'})
     red_fmt = wb.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
 
-    # Écriture des en-têtes et ajustement colonnes
-    for idx, col in enumerate(required):
-        ws.write(0, idx, col.title(), header_fmt)
-        ws.set_column(idx, idx, 30)
+    # Écriture en-têtes
+    for col_idx, col in enumerate(required):
+        ws.write(0, col_idx, col.title(), header_fmt)
+        ws.set_column(col_idx, col_idx, 25)
 
     # Écriture des données filtrées uniquement
-    for r, row in enumerate(filtered[required].itertuples(index=False), start=1):
-        for c, val in enumerate(row):
-            fmt = red_fmt if match_art(val) else wrap_fmt
-            ws.write(r, c, val, fmt)
+    for row_idx, row in filtered.iterrows():
+        for col_idx, col in enumerate(required):
+            val = row[col]
+            # Coloration si l'article présent dans la cellule
+            fmt = red_fmt if pattern.search(str(val)) else wrap_fmt
+            ws.write(row_idx+1, col_idx, val, fmt)
 
     wb.close()
     output.seek(0)
 
-    # Envoi vers template
     return render_template('resultats.html',
         table_markdown=markdown_table,
         excel_bytes=output.read(),
@@ -101,6 +98,7 @@ def analyse():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
