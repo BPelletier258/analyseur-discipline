@@ -11,7 +11,7 @@ from flask import Flask, send_file, abort
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-target_article = r"Art\.\s*14(?=\D|$)"  # filtre strict pour Art. 14
+target_article = r"Art[.:]\s*14(?=\D|$)"  # filtre strict pour Art. 14 ou Art: 14
 output_file = "decisions_article_14_formate.xlsx"
 app = Flask(__name__)
 
@@ -125,6 +125,7 @@ if __name__ == '__main__':
     except Exception as err:
         print(f"❌ Erreur : {err}")
         sys.exit(1)
+
 
 
 
