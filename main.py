@@ -1,4 +1,3 @@
-
 import re
 import glob
 import sys
@@ -12,7 +11,7 @@ from flask import Flask, send_file, abort
 # --------------------------------------------------------------------------------
 # CONFIGURATION
 # --------------------------------------------------------------------------------
-target_article = r"Art\.\s*14"
+target_article = r"Art\.\s*14(?=\D|$)"  # strict match 14, not 149.1
 output_file = "decisions_article_14_formate.xlsx"
 
 app = Flask(__name__)
@@ -27,6 +26,7 @@ def normalize(col):
 
 
 def process_excel():
+    # trouver fichier source
     files = glob.glob("*.xls*")
     if not files:
         raise FileNotFoundError("Aucun fichier Excel trouvé dans le dossier courant.")
@@ -35,7 +35,7 @@ def process_excel():
     # lecture
     try:
         df = pd.read_excel(input_file)
-    except Exception:
+    except:
         df = pd.read_excel(input_file, sheet_name=0)
 
     # normalisation noms colonnes
@@ -52,35 +52,48 @@ def process_excel():
     if missing:
         raise KeyError(f"Colonnes manquantes : {missing}")
 
-    # filtrage article
-    mask = df['articles enfreints'].astype(str).str.contains(target_article)
+    # filtrage article 14 strict
+    mask = df['articles enfreints'].astype(str).str.contains(target_article, regex=True)
     filtered = df.loc[mask].copy()
 
-    # résumé
+    # création colonne Résumé et conserver URL
+    urls = None
     if 'resume' in filtered.columns:
-        filtered['Résumé'] = filtered['resume'].apply(lambda x: 'Résumé' if pd.notna(x) else '')
-        filtered.drop(columns=['resume'], inplace=True)
-    else:
-        filtered['Résumé'] = ''
+        urls = filtered['resume'].fillna("")
+    filtered['Résumé'] = ['Résumé'] * len(filtered)
 
-    # écriture Excel
+    # construction Excel
     wb = Workbook()
     ws = wb.active
     ws.title = 'Article_14'
+    # écrire en-tête + données
     for r in dataframe_to_rows(filtered, index=False, header=True):
         ws.append(r)
-    # styles
+
+    # style en-tête
     for cell in ws[1]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal='center')
-    for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            if isinstance(cell.value, str) and re.search(target_article, cell.value):
-                cell.font = Font(color='FF0000')
-            cell.alignment = Alignment(wrap_text=True)
+    # ajuster largeur
     for col in ws.columns:
         length = max(len(str(cell.value)) for cell in col)
         ws.column_dimensions[col[0].column_letter].width = min(length+2, 40)
+
+    # mise en forme et hyperliens
+    col_index = {cell.value: idx+1 for idx, cell in enumerate(ws[1])}
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=0):
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True)
+            if isinstance(cell.value, str) and re.search(target_article, cell.value):
+                cell.font = Font(color='FF0000')
+        # ajouter hyperlink pour Résumé
+        if urls is not None:
+            url = urls.iloc[row_idx]
+            if url:
+                c = ws.cell(row=row_idx+2, column=col_index['Résumé'])
+                c.hyperlink = url
+                c.style = 'Hyperlink'
+
     wb.save(output_file)
     return output_file
 
@@ -104,13 +117,13 @@ def generate():
 # CLI
 # --------------------------------------------------------------------------------
 if __name__ == '__main__':
-    # exécution locale
     try:
         file_created = process_excel()
         print(f"🎉 Fichier Excel généré : {file_created}")
     except Exception as err:
         print(f"❌ Erreur : {err}")
         sys.exit(1)
+
 
 
 
