@@ -1,141 +1,74 @@
-import re
-import glob
-import sys
-import pandas as pd
-import unicodedata
-from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment
-from openpyxl.utils.dataframe import dataframe_to_rows
-from flask import Flask, send_file, abort
+from flask import Flask, request, render_template, send_file
+from io import BytesIO
+import pandas as pd, re, unicodedata, xlsxwriter
 
-# -----------------------------------------------------------------------------
-# CONFIGURATION
-# -----------------------------------------------------------------------------
-target_article = r"Art[.:]\s*14(?=\D|$)"  # filtre strict pour Art. 14
-output_file = "decisions_article_14_formate.xlsx"
 app = Flask(__name__)
 
-# -----------------------------------------------------------------------------
-# UTILS
-# -----------------------------------------------------------------------------
 def normalize(col):
-    text = unicodedata.normalize('NFKD', str(col))
-    return ''.join(c for c in text if not unicodedata.combining(c)).lower().strip()
+    s = unicodedata.normalize('NFKD', str(col))
+    return ''.join(ch for ch in s if not unicodedata.combining(ch)).lower().strip()
 
-# -----------------------------------------------------------------------------
-# EXTRACTION & FILTRAGE
-# -----------------------------------------------------------------------------
-def get_filtered_df():
-    files = glob.glob("*.xls*")
-    if not files:
-        raise FileNotFoundError("Aucun fichier Excel trouvé dans le dossier courant.")
-    input_file = files[0]
-
-    try:
-        df = pd.read_excel(input_file)
-    except:
-        df = pd.read_excel(input_file, sheet_name=0)
-
-    # normalisation des colonnes
+def style_and_filter(df, article):
+    # Normalisation des noms de colonnes
     df.columns = [normalize(c) for c in df.columns]
-    df.rename(columns={
-        'nom de lintime': "nom de l'intime",
-        'numero de decision': 'numero de decision',
-        'articles enfreints': 'articles enfreints'
-    }, inplace=True)
-
-    required = ['numero de decision', "nom de l'intime", 'articles enfreints']
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise KeyError(f"Colonnes manquantes : {missing}")
-
-    mask = df['articles enfreints'].astype(str).str.contains(target_article, regex=True)
+    df.rename(columns={'nom de lintime':"nom de l'intime"}, inplace=True)
+    # Filtrage strict
+    pattern = re.compile(rf'Art[.:]\s*{re.escape(article)}(?=\D|$)', re.IGNORECASE)
+    mask = df['articles enfreints'].astype(str).apply(lambda x: bool(pattern.search(unicodedata.normalize('NFKD', x))))
     filtered = df.loc[mask].copy()
+    return filtered, pattern
 
-    # extraire et remplacer résumé
-    urls = filtered.get('resume', pd.Series(['']*len(filtered))).fillna('')
-    if 'resume' in filtered.columns:
-        filtered.drop(columns=['resume'], inplace=True)
-    filtered['Résumé'] = ['Résumé'] * len(filtered)
+@app.route('/', methods=['GET', 'POST'])
+def analyse():
+    if request.method == 'POST':
+        file = request.files.get('file')
+        article = request.form.get('article','').strip()
+        if not file or not article:
+            return render_template('index.html', erreur="Veuillez fournir un fichier et un article.")
+        # Lecture du Excel en mémoire
+        df = pd.read_excel(file)
+        filtered, pattern = style_and_filter(df, article)
+        if filtered.empty:
+            return render_template('index.html', erreur=f"Aucun résultat pour l'article {article}.")
+        # Génération Markdown
+        markdown_table = filtered[['numero de decision','nom de l\'intime','articles enfreints']].to_markdown(index=False)
+        # Génération Excel en mémoire
+        output = BytesIO()
+        wb = xlsxwriter.Workbook(output, {'in_memory':True})
+        ws = wb.add_worksheet('Résultats')
+        # Formats
+        wrap = wb.add_format({'text_wrap':True})
+        red = wb.add_format({'font_color':'#FF0000','text_wrap':True})
+        # Header
+        cols = filtered.columns.tolist()
+        for i, col in enumerate(cols):
+            ws.write(0,i,col, wb.add_format({'bold':True}))
+            ws.set_column(i,i,30)
+        # Data
+        for r, row in enumerate(filtered.itertuples(index=False), start=1):
+            for c, val in enumerate(row):
+                txt = str(val)
+                fmt = red if pattern.search(txt) else wrap
+                ws.write(r, c, txt, fmt)
+        wb.close()
+        output.seek(0)
+        return render_template('index.html',
+            markdown=markdown_table,
+            excel_data=output.read(),
+            filename=f"resultats_{article}.xlsx"
+        )
+    # GET
+    return render_template('index.html')
 
-    return filtered, urls
+@app.route('/download/<filename>')
+def download(filename):
+    data = request.args.get('data')
+    # non nécessaire si on encode directement dans le template via data URI
+    return send_file(BytesIO(data.encode('latin1')), attachment_filename=filename)
 
-# -----------------------------------------------------------------------------
-# CRÉATION EXCEL
-# -----------------------------------------------------------------------------
-def build_excel(filtered, urls):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = 'Article_14'
+if __name__=='__main__':
+    app.run()
 
-    # écrire
-    for r in dataframe_to_rows(filtered, index=False, header=True):
-        ws.append(r)
-
-    # style en-têtes
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal='center')
-
-    # ajuster largeur
-    for col in ws.columns:
-        max_len = max((len(str(c.value)) for c in col), default=0)
-        ws.column_dimensions[col[0].column_letter].width = min(max_len+2, 40)
-
-    # mise en forme
-    header_index = {cell.value: idx+1 for idx, cell in enumerate(ws[1])}
-    for i, row in enumerate(ws.iter_rows(min_row=2), start=2):
-        for cell in row:
-            cell.alignment = Alignment(wrap_text=True)
-            if isinstance(cell.value, str) and re.search(target_article, cell.value):
-                cell.font = Font(color='FF0000')
-        url = urls.iat[i-2]
-        if url:
-            link_cell = ws.cell(row=i, column=header_index['Résumé'])
-            link_cell.hyperlink = url
-            link_cell.style = 'Hyperlink'
-
-    wb.save(output_file)
-
-# -----------------------------------------------------------------------------
-# HTTP ENDPOINT
-# -----------------------------------------------------------------------------
-@app.route('/')
-def root():
-    return ('<h3>Analyse Disciplinaires</h3>'
-            '<p>/generate &lt;renvoie le fichier Excel&gt; et /table &lt;renvoie le Markdown&gt;</p>')
-
-@app.route('/generate')
-def generate():
-    try:
-        filtered, urls = get_filtered_df()
-        build_excel(filtered, urls)
-    except Exception as e:
-        abort(500, description=str(e))
-    return send_file(output_file, as_attachment=True)
-
-@app.route('/table')
-def table():
-    try:
-        filtered, _ = get_filtered_df()
-    except Exception as e:
-        abort(500, description=str(e))
-    return '<pre>' + filtered.to_markdown(index=False) + '</pre>'
-
-# -----------------------------------------------------------------------------
-# CLI
-# -----------------------------------------------------------------------------
-if __name__ == '__main__':
-    try:
-        filtered, urls = get_filtered_df()
-        # afficher Markdown
-        print(filtered.to_markdown(index=False))
-        # générer Excel
-        build_excel(filtered, urls)
-        print(f"🎉 Fichier généré : {output_file}")
-    except Exception as err:
-        print(f"❌ Erreur : {err}")
-        sys.exit(1)
 
 
 
