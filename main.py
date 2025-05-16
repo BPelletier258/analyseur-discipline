@@ -11,7 +11,7 @@ from flask import Flask, send_file, abort
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-target_article = r"Art[.:]\s*14(?=\D|$)"  # filtre strict pour Art. 14 ou Art: 14
+target_article = r"Art[.:]\s*14(?=\D|$)"  # filtre strict pour Art. 14
 output_file = "decisions_article_14_formate.xlsx"
 app = Flask(__name__)
 
@@ -23,16 +23,14 @@ def normalize(col):
     return ''.join(c for c in text if not unicodedata.combining(c)).lower().strip()
 
 # -----------------------------------------------------------------------------
-# TRAITEMENT EXCEL
+# EXTRACTION & FILTRAGE
 # -----------------------------------------------------------------------------
-def process_excel():
-    # trouver le fichier source (.xls ou .xlsx)
+def get_filtered_df():
     files = glob.glob("*.xls*")
     if not files:
         raise FileNotFoundError("Aucun fichier Excel trouvé dans le dossier courant.")
     input_file = files[0]
 
-    # lecture
     try:
         df = pd.read_excel(input_file)
     except:
@@ -46,29 +44,31 @@ def process_excel():
         'articles enfreints': 'articles enfreints'
     }, inplace=True)
 
-    # vérification des colonnes obligatoires
     required = ['numero de decision', "nom de l'intime", 'articles enfreints']
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise KeyError(f"Colonnes manquantes : {missing}")
 
-    # filtrage article 14
     mask = df['articles enfreints'].astype(str).str.contains(target_article, regex=True)
     filtered = df.loc[mask].copy()
 
-    # extraire les URLs puis supprimer la colonne brute
+    # extraire et remplacer résumé
     urls = filtered.get('resume', pd.Series(['']*len(filtered))).fillna('')
-    filtered.drop(columns=[col for col in ['resume'] if col in filtered.columns], inplace=True)
-
-    # préparer colonne Résumé (hyperlien)
+    if 'resume' in filtered.columns:
+        filtered.drop(columns=['resume'], inplace=True)
     filtered['Résumé'] = ['Résumé'] * len(filtered)
 
-    # création du classeur
+    return filtered, urls
+
+# -----------------------------------------------------------------------------
+# CRÉATION EXCEL
+# -----------------------------------------------------------------------------
+def build_excel(filtered, urls):
     wb = Workbook()
     ws = wb.active
     ws.title = 'Article_14'
 
-    # écriture des données
+    # écrire
     for r in dataframe_to_rows(filtered, index=False, header=True):
         ws.append(r)
 
@@ -77,19 +77,18 @@ def process_excel():
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal='center')
 
-    # ajuster largeur colonnes
+    # ajuster largeur
     for col in ws.columns:
         max_len = max((len(str(c.value)) for c in col), default=0)
-        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 40)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len+2, 40)
 
-    # mise en forme et hyperliens
+    # mise en forme
     header_index = {cell.value: idx+1 for idx, cell in enumerate(ws[1])}
     for i, row in enumerate(ws.iter_rows(min_row=2), start=2):
         for cell in row:
             cell.alignment = Alignment(wrap_text=True)
             if isinstance(cell.value, str) and re.search(target_article, cell.value):
                 cell.font = Font(color='FF0000')
-        # hyperlien
         url = urls.iat[i-2]
         if url:
             link_cell = ws.cell(row=i, column=header_index['Résumé'])
@@ -97,34 +96,47 @@ def process_excel():
             link_cell.style = 'Hyperlink'
 
     wb.save(output_file)
-    return output_file
 
 # -----------------------------------------------------------------------------
 # HTTP ENDPOINT
 # -----------------------------------------------------------------------------
 @app.route('/')
 def root():
-    return ('<h3>Service Analyse Disciplinaires</h3>'
-            '<p>Rendez-vous sur <a href="/generate">/generate</a> pour générer le fichier.</p>')
+    return ('<h3>Analyse Disciplinaires</h3>'
+            '<p>/generate &lt;renvoie le fichier Excel&gt; et /table &lt;renvoie le Markdown&gt;</p>')
 
 @app.route('/generate')
 def generate():
     try:
-        fname = process_excel()
+        filtered, urls = get_filtered_df()
+        build_excel(filtered, urls)
     except Exception as e:
         abort(500, description=str(e))
-    return send_file(fname, as_attachment=True)
+    return send_file(output_file, as_attachment=True)
+
+@app.route('/table')
+def table():
+    try:
+        filtered, _ = get_filtered_df()
+    except Exception as e:
+        abort(500, description=str(e))
+    return '<pre>' + filtered.to_markdown(index=False) + '</pre>'
 
 # -----------------------------------------------------------------------------
 # CLI
 # -----------------------------------------------------------------------------
 if __name__ == '__main__':
     try:
-        out = process_excel()
-        print(f"🎉 Fichier Excel généré : {out}")
+        filtered, urls = get_filtered_df()
+        # afficher Markdown
+        print(filtered.to_markdown(index=False))
+        # générer Excel
+        build_excel(filtered, urls)
+        print(f"🎉 Fichier généré : {output_file}")
     except Exception as err:
         print(f"❌ Erreur : {err}")
         sys.exit(1)
+
 
 
 
