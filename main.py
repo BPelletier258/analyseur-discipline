@@ -19,7 +19,8 @@ INDEX_HTML = '''
     body { font-family: Arial, sans-serif; padding: 20px; }
     form { margin-bottom: 20px; }
     .container { overflow-x: auto; }
-    table { border-collapse: collapse; width: 100%; table-layout: auto; }
+    /* Allow table to scroll rather than force 100% width */
+    table.discipline { border-collapse: collapse; min-width: 600px; table-layout: auto; }
     th, td { border: 1px solid #ccc; padding: 6px; text-align: left; white-space: normal; word-break: break-word; }
     th { background: #f0f0f0; }
     a.download { display: inline-block; margin: 10px 0; }
@@ -41,10 +42,10 @@ INDEX_HTML = '''
 </html>
 '''
 
-# Crée une regex stricte pour Art. XX sans capter XXX
+# Regex strict : Art. XX ou Art: XX sans capter Art XXX
 def make_regex(article):
     art = int(article)
-    return re.compile(rf"\bArt\.\s*{art}(?!\d)", re.IGNORECASE)
+    return re.compile(rf"\bArt[\.:]\s*{art}(?!\d)", re.IGNORECASE)
 
 @app.route('/', methods=['GET'])
 def index():
@@ -58,43 +59,40 @@ def analyze():
 
     df = pd.read_excel(upload)
 
-    # filtre pour toute cellule contenant le bon article
+    # Filtre toutes les cellules contenant l'article exact
     mask = df.applymap(lambda v: bool(pattern.search(str(v))))
-    row_mask = mask.any(axis=1)
-    filtered = df.loc[row_mask].copy()
+    filtered = df.loc[mask.any(axis=1)].copy()
 
-    # supprime colonne résumé
+    # Supprime toute colonne contenant 'résumé'
     drop_cols = [c for c in filtered.columns if 'résumé' in c.lower()]
     filtered.drop(columns=drop_cols, inplace=True)
 
-    # format Excel
+    # --- Génère le fichier Excel formaté ---
     wb = Workbook()
     ws = wb.active
-    # entêtes
     for r_idx, row in enumerate(dataframe_to_rows(filtered, index=False, header=True), start=1):
         ws.append(row)
         if r_idx == 1:
-            # header bold
             for cell in ws[r_idx]:
                 cell.font = Font(bold=True)
-    # style wrap & rouge
     red = Font(color='FFFF0000')
     for col in ws.columns:
-        max_length = 10
+        max_len = 0
         for cell in col:
             cell.alignment = Alignment(wrap_text=True)
-            val = str(cell.value or '')
-            if pattern.search(val):
+            text = str(cell.value or '')
+            # met en rouge si l'article apparaît
+            if pattern.search(text):
                 cell.font = red
-            max_length = max(max_length, len(val))
-        # colonne automatique
-        ws.column_dimensions[col[0].column_letter].width = min(max_length * 1.1, 50)
+            max_len = max(max_len, len(text))
+        # ajuste largeur, Max 50
+        ws.column_dimensions[col[0].column_letter].width = min(max_len * 1.1, 50)
 
     out = 'filtered_output.xlsx'
     wb.save(out)
     app.config['LAST_FILE'] = out
 
-    # HTML table avec classes
+    # --- Génère HTML ---
     html = filtered.to_html(index=False, classes='discipline')
     return render_template_string(INDEX_HTML, table_html=html)
 
@@ -106,6 +104,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
