@@ -56,7 +56,12 @@ INDEX_HTML = '''
 '''  
 
 def make_regex(article):
-    num = int(article)
+    # extract leading digits to avoid inputs like '59(2)'
+    m = re.match(r"^(\d+)", str(article))
+    if not m:
+        raise ValueError(f"Numéro d'article invalide : {article}")
+    num = m.group(1)
+    # only match that exact number, not prefixes
     return re.compile(rf"\bArt[\.:]\s*{num}(?!\d)", re.IGNORECASE)
 
 @app.route('/', methods=['GET'])
@@ -71,23 +76,23 @@ def analyze():
 
     df = pd.read_excel(upload)
 
-    # Extraire la colonne résumé et la renommer
+    # gérer colonne résumé/hyperlien
     summary_cols = [c for c in df.columns if 'résumé' in c.lower() or 'resume' in c.lower()]
     if summary_cols:
         src = summary_cols[0]
         df['Résumé'] = df[src].apply(lambda u: f'<a href="{u}" target="_blank">Résumé</a>' if pd.notna(u) else '')
         df.drop(columns=summary_cols, inplace=True)
 
-    # Filtrer toutes les lignes où l'article apparaît
+    # filtrer lignes contenant l'article
     mask = df.applymap(lambda v: bool(pattern.search(str(v))))
     filtered = df.loc[mask.any(axis=1)].copy()
 
-    # Réordonner pour que Résumé soit en dernière colonne
+    # réordonner Résumé en dernier
     if 'Résumé' in filtered.columns:
         cols = [c for c in filtered.columns if c != 'Résumé'] + ['Résumé']
         filtered = filtered[cols]
 
-    # Générer l'Excel formaté
+    # création du fichier Excel formaté
     wb = Workbook()
     ws = wb.active
     for r, row in enumerate(dataframe_to_rows(filtered, index=False, header=True), start=1):
@@ -107,7 +112,7 @@ def analyze():
     wb.save(out)
     app.config['LAST_FILE'] = out
 
-    # Générer le HTML avec scroll horizontal et la colonne Résumé
+    # générer HTML avec scroll
     html = filtered.to_html(index=False, classes='discipline', escape=False)
     return render_template_string(INDEX_HTML, table_html=html)
 
@@ -117,6 +122,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
