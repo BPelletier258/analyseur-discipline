@@ -18,9 +18,20 @@ INDEX_HTML = '''
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; }
     form { margin-bottom: 20px; }
-    .container { overflow-x: auto; }
-    table.discipline { border-collapse: collapse; width: 100%; min-width: 800px; table-layout: fixed; }
-    th, td { border: 1px solid #ccc; padding: 6px; text-align: left; white-space: normal; word-break: break-word; }
+    .container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table.discipline {
+      border-collapse: collapse;
+      width: 100%;
+      min-width: 800px;
+      table-layout: fixed;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px;
+      text-align: left;
+      white-space: normal;
+      word-wrap: break-word;
+    }
     th { background: #f0f0f0; }
     a.download { display: inline-block; margin: 10px 0; }
   </style>
@@ -41,12 +52,13 @@ INDEX_HTML = '''
   {% endif %}
 </body>
 </html>
-'''
+'''  
 
-# Regex strict : Art. XX ou Art: XX sans capter Art XXX
+# Construire un regex strict pour capter Art. XX mais pas XXX
+
 def make_regex(article):
-    art = int(article)
-    return re.compile(rf"\bArt[\.:]\s*{art}(?!\d)", re.IGNORECASE)
+    num = int(article)
+    return re.compile(rf"\bArt[\.:]\s*{num}(?!\d)", re.IGNORECASE)
 
 @app.route('/', methods=['GET'])
 def index():
@@ -61,54 +73,50 @@ def analyze():
     # Lecture du fichier uploadé
     df = pd.read_excel(upload)
 
-    # Détection et insertion de la colonne Résumé à la fin
+    # Extraire et reformater la colonne de liens en 'Résumé'
     summary_cols = [c for c in df.columns if 'résumé' in c.lower() or 'resume' in c.lower()]
     if summary_cols:
-        url_col = summary_cols[0]
-        df['Résumé'] = df[url_col].apply(
-            lambda url: f'<a href="{url}" target="_blank">Résumé</a>' if pd.notna(url) else ''
-        )
+        src = summary_cols[0]
+        df['Résumé'] = df[src].apply(lambda u: f'<a href="{u}" target="_blank">Résumé</a>' if pd.notna(u) else '')
         df.drop(columns=summary_cols, inplace=True)
 
-    # Filtrer les lignes contenant l'article exact dans n'importe quelle colonne
+    # Filtrer toutes les lignes où l'article apparaît (n'importe quelle colonne)
     mask = df.applymap(lambda v: bool(pattern.search(str(v))))
     filtered = df.loc[mask.any(axis=1)].copy()
 
-    # --- Génération du fichier Excel formaté ---
+    # --- Générer l'Excel formaté ---
     wb = Workbook()
     ws = wb.active
-    # Insérer toutes les lignes (en-tête + données)
-    for r_idx, row in enumerate(dataframe_to_rows(filtered, index=False, header=True), start=1):
+    for r, row in enumerate(dataframe_to_rows(filtered, index=False, header=True), start=1):
         ws.append(row)
-        if r_idx == 1:
-            for cell in ws[r_idx]:
+        if r == 1:
+            for cell in ws[r]:
                 cell.font = Font(bold=True)
-    # Style et surlignage rouge partout où l'article apparaît
-    red = Font(color='FFFF0000')
+    red_font = Font(color='FFFF0000')
     for col in ws.columns:
         max_len = 0
         for cell in col:
             cell.alignment = Alignment(wrap_text=True)
             text = str(cell.value or '')
             if pattern.search(text):
-                cell.font = red
+                cell.font = red_font
             max_len = max(max_len, len(text))
         ws.column_dimensions[col[0].column_letter].width = min(max_len * 1.1, 50)
+    out = 'filtered_output.xlsx'
+    wb.save(out)
+    app.config['LAST_FILE'] = out
 
-    out_file = 'filtered_output.xlsx'
-    wb.save(out_file)
-    app.config['LAST_FILE'] = out_file
-
-    # --- Génération HTML avec hyperlinks et affichage scrollable ---
+    # --- Générer le HTML du tableau avec la colonne Résumé réinsérée ---
     html = filtered.to_html(index=False, classes='discipline', escape=False)
     return render_template_string(INDEX_HTML, table_html=html)
 
 @app.route('/download')
 def download():
-    return send_file(app.config.get('LAST_FILE'), download_name='decisions_filtrees.xlsx', as_attachment=True)
+    return send_file(app.config['LAST_FILE'], download_name='decisions_filtrees.xlsx', as_attachment=True)
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
