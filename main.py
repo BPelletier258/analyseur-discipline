@@ -19,7 +19,6 @@ INDEX_HTML = '''
     body { font-family: Arial, sans-serif; padding: 20px; }
     form { margin-bottom: 20px; }
     .container { overflow-x: auto; }
-    /* Allow table to scroll rather than force 100% width */
     table.discipline { border-collapse: collapse; min-width: 600px; table-layout: auto; }
     th, td { border: 1px solid #ccc; padding: 6px; text-align: left; white-space: normal; word-break: break-word; }
     th { background: #f0f0f0; }
@@ -59,13 +58,17 @@ def analyze():
 
     df = pd.read_excel(upload)
 
+    # Ajoute colonne Résumé avec lien court
+    summary_cols = [c for c in df.columns if 'résumé' in c.lower() or 'resume' in c.lower()]
+    if summary_cols:
+        url_col = summary_cols[0]
+        df['Résumé'] = df[url_col].apply(lambda url: f'<a href="{url}" target="_blank">Résumé</a>' if pd.notna(url) else '')
+        # supprime anciennes colonnes de résumé
+        df.drop(columns=summary_cols, inplace=True)
+
     # Filtre toutes les cellules contenant l'article exact
     mask = df.applymap(lambda v: bool(pattern.search(str(v))))
     filtered = df.loc[mask.any(axis=1)].copy()
-
-    # Supprime toute colonne contenant 'résumé'
-    drop_cols = [c for c in filtered.columns if 'résumé' in c.lower()]
-    filtered.drop(columns=drop_cols, inplace=True)
 
     # --- Génère le fichier Excel formaté ---
     wb = Workbook()
@@ -73,37 +76,32 @@ def analyze():
     for r_idx, row in enumerate(dataframe_to_rows(filtered, index=False, header=True), start=1):
         ws.append(row)
         if r_idx == 1:
-            for cell in ws[r_idx]:
-                cell.font = Font(bold=True)
+            for cell in ws[r_idx]: cell.font = Font(bold=True)
     red = Font(color='FFFF0000')
     for col in ws.columns:
         max_len = 0
         for cell in col:
             cell.alignment = Alignment(wrap_text=True)
             text = str(cell.value or '')
-            # met en rouge si l'article apparaît
-            if pattern.search(text):
-                cell.font = red
+            if pattern.search(text): cell.font = red
             max_len = max(max_len, len(text))
-        # ajuste largeur, Max 50
-        ws.column_dimensions[col[0].column_letter].width = min(max_len * 1.1, 50)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len*1.1, 50)
 
     out = 'filtered_output.xlsx'
     wb.save(out)
     app.config['LAST_FILE'] = out
 
-    # --- Génère HTML ---
-    html = filtered.to_html(index=False, classes='discipline')
+    # --- Génère HTML avec hyperlink ---
+    html = filtered.to_html(index=False, classes='discipline', escape=False)
     return render_template_string(INDEX_HTML, table_html=html)
 
 @app.route('/download')
 def download():
-    return send_file(app.config.get('LAST_FILE'),
-                     download_name='decisions_filtrees.xlsx',
-                     as_attachment=True)
+    return send_file(app.config.get('LAST_FILE'), download_name='decisions_filtrees.xlsx', as_attachment=True)
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
