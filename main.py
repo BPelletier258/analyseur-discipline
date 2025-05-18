@@ -18,12 +18,13 @@ INDEX_HTML = '''
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; }
     form { margin-bottom: 20px; }
-    .container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     table.discipline {
       border-collapse: collapse;
       width: 100%;
       min-width: 800px;
-      table-layout: fixed;
+      table-layout: auto;
+      display: inline-block;
     }
     th, td {
       border: 1px solid #ccc;
@@ -46,15 +47,13 @@ INDEX_HTML = '''
   <hr>
   {% if table_html %}
     <a href="/download" class="download">⬇️ Télécharger le fichier Excel formaté</a>
-    <div class="container">
+    <div class="table-container">
       {{ table_html|safe }}
     </div>
   {% endif %}
 </body>
 </html>
 '''  
-
-# Construire un regex strict pour capter Art. XX mais pas XXX
 
 def make_regex(article):
     num = int(article)
@@ -70,43 +69,45 @@ def analyze():
     article = request.form.get('article', '14')
     pattern = make_regex(article)
 
-    # Lecture du fichier uploadé
     df = pd.read_excel(upload)
 
-    # Extraire et reformater la colonne de liens en 'Résumé'
+    # Extraire la colonne résumé et la renommer
     summary_cols = [c for c in df.columns if 'résumé' in c.lower() or 'resume' in c.lower()]
     if summary_cols:
         src = summary_cols[0]
         df['Résumé'] = df[src].apply(lambda u: f'<a href="{u}" target="_blank">Résumé</a>' if pd.notna(u) else '')
         df.drop(columns=summary_cols, inplace=True)
 
-    # Filtrer toutes les lignes où l'article apparaît (n'importe quelle colonne)
+    # Filtrer toutes les lignes où l'article apparaît
     mask = df.applymap(lambda v: bool(pattern.search(str(v))))
     filtered = df.loc[mask.any(axis=1)].copy()
 
-    # --- Générer l'Excel formaté ---
+    # Réordonner pour que Résumé soit en dernière colonne
+    if 'Résumé' in filtered.columns:
+        cols = [c for c in filtered.columns if c != 'Résumé'] + ['Résumé']
+        filtered = filtered[cols]
+
+    # Générer l'Excel formaté
     wb = Workbook()
     ws = wb.active
     for r, row in enumerate(dataframe_to_rows(filtered, index=False, header=True), start=1):
         ws.append(row)
         if r == 1:
-            for cell in ws[r]:
-                cell.font = Font(bold=True)
+            for cell in ws[r]: cell.font = Font(bold=True)
     red_font = Font(color='FFFF0000')
     for col in ws.columns:
         max_len = 0
         for cell in col:
             cell.alignment = Alignment(wrap_text=True)
             text = str(cell.value or '')
-            if pattern.search(text):
-                cell.font = red_font
+            if pattern.search(text): cell.font = red_font
             max_len = max(max_len, len(text))
-        ws.column_dimensions[col[0].column_letter].width = min(max_len * 1.1, 50)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len * 1.2, 50)
     out = 'filtered_output.xlsx'
     wb.save(out)
     app.config['LAST_FILE'] = out
 
-    # --- Générer le HTML du tableau avec la colonne Résumé réinsérée ---
+    # Générer le HTML avec scroll horizontal et la colonne Résumé
     html = filtered.to_html(index=False, classes='discipline', escape=False)
     return render_template_string(INDEX_HTML, table_html=html)
 
@@ -116,6 +117,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
