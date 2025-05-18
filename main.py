@@ -19,8 +19,8 @@ INDEX_HTML = '''
   <meta charset="utf-8">
   <title>Analyse Disciplinaire</title>
   <style>
-    table {border-collapse: collapse; width: 100%; table-layout: fixed;}
-    th, td {border: 1px solid #ccc; padding: 6px; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;}
+    table {border-collapse: collapse; width: 100%; table-layout: auto;}
+    th, td {border: 1px solid #ccc; padding: 6px; text-align: left; white-space: normal; word-break: break-word;}
     th {background: #f5f5f5;}
     .container {max-width: 100%; overflow-x: auto;}
   </style>
@@ -56,15 +56,17 @@ def analyze():
     pattern = make_regex(article)
 
     df = pd.read_excel(upload)
+    # trouver colonne articles enfreints
     cols = [c for c in df.columns if 'articles enfreints' in c.lower()]
     if not cols:
         return 'Colonne "articles enfreints" introuvable', 400
     col_name = cols[0]
 
+    # filtrer
     mask = df[col_name].astype(str).str.contains(pattern)
     filtered = df.loc[mask].copy()
 
-    # supprime colonnes de résumé/hyperliens
+    # supprimer colonne résumé/hyperliens
     drop_cols = [c for c in filtered.columns if 'résumé' in c.lower()]
     filtered.drop(columns=drop_cols, inplace=True)
 
@@ -83,6 +85,7 @@ def analyze():
     wb.save(output_path)
     app.config['LAST_OUTPUT'] = output_path
 
+    # génération HTML sans dépendances externes
     table_html = filtered.to_html(index=False)
     return render_template_string(INDEX_HTML, table_html=table_html)
 
@@ -93,6 +96,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
