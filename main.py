@@ -1,3 +1,4 @@
+
 import re
 import sys
 import pandas as pd
@@ -8,10 +9,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
 
-# --- INSTRUCTIONS ---
-# L'utilisateur uploade un fichier Excel et saisit le numéro d'article à filtrer.
-# Le code génère un fichier Excel formaté et affiche un tableau HTML stylé.
-
+# --- Page HTML ---
 INDEX_HTML = '''
 <!doctype html>
 <html lang="fr">
@@ -19,10 +17,13 @@ INDEX_HTML = '''
   <meta charset="utf-8">
   <title>Analyse Disciplinaire</title>
   <style>
-    table {border-collapse: collapse; width: 100%; table-layout: auto;}
-    th, td {border: 1px solid #ccc; padding: 6px; text-align: left; white-space: normal; word-break: break-word;}
-    th {background: #f5f5f5;}
-    .container {max-width: 100%; overflow-x: auto;}
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    form { margin-bottom: 20px; }
+    table { border-collapse: collapse; width: 100%; table-layout: auto; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; white-space: normal; word-break: break-word; }
+    th { background: #f0f0f0; }
+    .container { overflow-x: auto; }
+    a.download { display: inline-block; margin: 10px 0; }
   </style>
 </head>
 <body>
@@ -34,15 +35,15 @@ INDEX_HTML = '''
   </form>
   <hr>
   {% if table_html %}
-    <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
+    <a href="/download" class="download">⬇️ Télécharger le fichier Excel formaté</a>
     <div class="container">{{ table_html|safe }}</div>
   {% endif %}
 </body>
 </html>
 '''
 
+# Crée une regex stricte pour Art. XX (pas XXX)
 def make_regex(article):
-    # correspondance exacte (Art. 14, pas Art.149 ou Art.140)
     return re.compile(rf"\bArt\.\s*{int(article)}(?!\d)", re.IGNORECASE)
 
 @app.route('/', methods=['GET'])
@@ -56,46 +57,46 @@ def analyze():
     pattern = make_regex(article)
 
     df = pd.read_excel(upload)
-    # trouver colonne articles enfreints
+    # repère la colonne 'articles enfreints'
     cols = [c for c in df.columns if 'articles enfreints' in c.lower()]
     if not cols:
         return 'Colonne "articles enfreints" introuvable', 400
-    col_name = cols[0]
+    col = cols[0]
 
-    # filtrer
-    mask = df[col_name].astype(str).str.contains(pattern)
+    # filtre strict
+    mask = df[col].astype(str).str.contains(pattern)
     filtered = df.loc[mask].copy()
 
-    # supprimer colonne résumé/hyperliens
-    drop_cols = [c for c in filtered.columns if 'résumé' in c.lower()]
-    filtered.drop(columns=drop_cols, inplace=True)
+    # supprime toute colonne 'résumé'
+    drop = [c for c in filtered.columns if 'résumé' in c.lower()]
+    filtered.drop(columns=drop, inplace=True)
 
-    # création Excel formaté
+    # génère Excel formaté
     wb = Workbook()
     ws = wb.active
     for row in dataframe_to_rows(filtered, index=False, header=True):
         ws.append(row)
-    red_font = Font(color='FFFF0000')
-    for r in ws.iter_rows(min_row=2):
-        for cell in r:
+    red = Font(color='FFFF0000')
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
             if isinstance(cell.value, str) and pattern.search(cell.value):
-                cell.font = red_font
+                cell.font = red
 
-    output_path = 'filtered_output.xlsx'
-    wb.save(output_path)
-    app.config['LAST_OUTPUT'] = output_path
+    out = 'filtered_output.xlsx'
+    wb.save(out)
+    app.config['LAST'] = out
 
-    # génération HTML sans dépendances externes
-    table_html = filtered.to_html(index=False)
-    return render_template_string(INDEX_HTML, table_html=table_html)
+    # HTML
+    html = filtered.to_html(index=False)
+    return render_template_string(INDEX_HTML, table_html=html)
 
 @app.route('/download')
 def download():
-    path = app.config.get('LAST_OUTPUT', 'filtered_output.xlsx')
-    return send_file(path, download_name=path, as_attachment=True)
+    return send_file(app.config['LAST'], download_name='decisions_filtrees.xlsx', as_attachment=True)
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
