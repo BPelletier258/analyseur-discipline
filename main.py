@@ -1,10 +1,9 @@
-
 import re
 import sys
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file
 from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Font, Alignment
 from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
@@ -19,10 +18,10 @@ INDEX_HTML = '''
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; }
     form { margin-bottom: 20px; }
-    table { border-collapse: collapse; width: 100%; table-layout: auto; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; white-space: normal; word-break: break-word; }
-    th { background: #f0f0f0; }
     .container { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; table-layout: auto; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: left; white-space: normal; word-break: break-word; }
+    th { background: #f0f0f0; }
     a.download { display: inline-block; margin: 10px 0; }
   </style>
 </head>
@@ -42,9 +41,10 @@ INDEX_HTML = '''
 </html>
 '''
 
-# Crée une regex stricte pour Art. XX (pas XXX)
+# Crée une regex stricte pour Art. XX sans capter XXX
 def make_regex(article):
-    return re.compile(rf"\bArt\.\s*{int(article)}(?!\d)", re.IGNORECASE)
+    art = int(article)
+    return re.compile(rf"\bArt\.\s*{art}(?!\d)", re.IGNORECASE)
 
 @app.route('/', methods=['GET'])
 def index():
@@ -57,45 +57,56 @@ def analyze():
     pattern = make_regex(article)
 
     df = pd.read_excel(upload)
-    # repère la colonne 'articles enfreints'
-    cols = [c for c in df.columns if 'articles enfreints' in c.lower()]
-    if not cols:
-        return 'Colonne "articles enfreints" introuvable', 400
-    col = cols[0]
 
-    # filtre strict
-    mask = df[col].astype(str).str.contains(pattern)
-    filtered = df.loc[mask].copy()
+    # filtre pour toute cellule contenant le bon article
+    mask = df.applymap(lambda v: bool(pattern.search(str(v))))
+    row_mask = mask.any(axis=1)
+    filtered = df.loc[row_mask].copy()
 
-    # supprime toute colonne 'résumé'
-    drop = [c for c in filtered.columns if 'résumé' in c.lower()]
-    filtered.drop(columns=drop, inplace=True)
+    # supprime colonne résumé
+    drop_cols = [c for c in filtered.columns if 'résumé' in c.lower()]
+    filtered.drop(columns=drop_cols, inplace=True)
 
-    # génère Excel formaté
+    # format Excel
     wb = Workbook()
     ws = wb.active
-    for row in dataframe_to_rows(filtered, index=False, header=True):
+    # entêtes
+    for r_idx, row in enumerate(dataframe_to_rows(filtered, index=False, header=True), start=1):
         ws.append(row)
+        if r_idx == 1:
+            # header bold
+            for cell in ws[r_idx]:
+                cell.font = Font(bold=True)
+    # style wrap & rouge
     red = Font(color='FFFF0000')
-    for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            if isinstance(cell.value, str) and pattern.search(cell.value):
+    for col in ws.columns:
+        max_length = 10
+        for cell in col:
+            cell.alignment = Alignment(wrap_text=True)
+            val = str(cell.value or '')
+            if pattern.search(val):
                 cell.font = red
+            max_length = max(max_length, len(val))
+        # colonne automatique
+        ws.column_dimensions[col[0].column_letter].width = min(max_length * 1.1, 50)
 
     out = 'filtered_output.xlsx'
     wb.save(out)
-    app.config['LAST'] = out
+    app.config['LAST_FILE'] = out
 
-    # HTML
-    html = filtered.to_html(index=False)
+    # HTML table avec classes
+    html = filtered.to_html(index=False, classes='discipline')
     return render_template_string(INDEX_HTML, table_html=html)
 
 @app.route('/download')
 def download():
-    return send_file(app.config['LAST'], download_name='decisions_filtrees.xlsx', as_attachment=True)
+    return send_file(app.config.get('LAST_FILE'),
+                     download_name='decisions_filtrees.xlsx',
+                     as_attachment=True)
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
