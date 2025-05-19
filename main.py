@@ -1,3 +1,4 @@
+```python
 import re
 import sys
 import pandas as pd
@@ -8,7 +9,6 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
 
-# --- Page HTML ---
 INDEX_HTML = '''
 <!doctype html>
 <html lang="fr">
@@ -24,7 +24,6 @@ INDEX_HTML = '''
       width: 100%;
       min-width: 800px;
       table-layout: auto;
-      display: inline-block;
     }
     th, td {
       border: 1px solid #ccc;
@@ -53,16 +52,14 @@ INDEX_HTML = '''
   {% endif %}
 </body>
 </html>
-'''  
+'''
 
 def make_regex(article):
-    # extract leading digits to avoid inputs like '59(2)'
-    m = re.match(r"^(\d+)", str(article))
-    if not m:
-        raise ValueError(f"Numéro d'article invalide : {article}")
-    num = m.group(1)
-    # only match that exact number, not prefixes
-    return re.compile(rf"\bArt[\.:]\s*{num}(?!\d)", re.IGNORECASE)
+    art = str(article).strip()
+    # escape special chars
+    esc = re.escape(art)
+    # match exact article number (e.g., 14, 59.2, 59(2)) not followed by digit
+    return re.compile(rf"\bArt[\.:]?\s*{esc}(?![\d])", re.IGNORECASE)
 
 @app.route('/', methods=['GET'])
 def index():
@@ -105,7 +102,8 @@ def analyze():
         for cell in col:
             cell.alignment = Alignment(wrap_text=True)
             text = str(cell.value or '')
-            if pattern.search(text): cell.font = red_font
+            if pattern.search(text):
+                cell.font = red_font
             max_len = max(max_len, len(text))
         ws.column_dimensions[col[0].column_letter].width = min(max_len * 1.2, 50)
     out = 'filtered_output.xlsx'
@@ -122,6 +120,8 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+```
+
 
 
 
