@@ -52,14 +52,19 @@ analyseur-discipline/
 └─ LICENSE             # Licence MIT
 ```
 
-\---------------------------|----------------------------------------------|
-\| `numero de decision`      | Numéro unique de la décision                 |
-\| `nom de l’intime`         | Nom de la personne sanctionnée               |
-\| `articles enfreints`      | Liste des articles enfreints                 |
-\| `duree totale effective radiation` | Durée de radiation                    |
-\| `article amende/chef`     | Montants d’amende ou chefs de sanction       |
-\| `autres sanctions`        | Autres mesures disciplinaires                |
-\| **optionnel** `résumé`    | URL vers le résumé de la décision            |
+---
+
+### Colonnes requises dans le fichier Excel
+
+| Nom interne                        | Description                          |
+| ---------------------------------- | ------------------------------------ |
+| `numero de decision`               | Numéro unique de la décision         |
+| `nom de l’intime`                  | Nom de la personne sanctionnée       |
+| `articles enfreints`               | Liste des articles enfreints         |
+| `duree totale effective radiation` | Durée totale effective de radiation  |
+| `article amende/chef`              | Montant d’amende ou chef de sanction |
+| `autres sanctions`                 | Autres mesures disciplinaires        |
+| *(optionnel)* `résumé`             | URL vers le résumé de la décision    |
 
 ---
 
@@ -112,6 +117,7 @@ analyseur-discipline/
 * Développé par **Assistant GPT** & **Utilisateur** (2025)
 
 <sub>Licence MIT – Voir le fichier LICENSE pour plus de détails.</sub>
+
 
 
 <sub>Licence MIT – Voir le fichier LICENSE pour plus de détails.</sub>
