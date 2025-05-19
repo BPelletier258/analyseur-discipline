@@ -3,7 +3,7 @@ import pandas as pd
 from flask import Flask, request, render_template_string, send_file
 from io import BytesIO
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
@@ -63,7 +63,7 @@ def process(df, target):
     all_urls = [c for c in df.columns if df[c].astype(str).str.startswith('http').any()]
     df = df.drop(columns=all_urls, errors='ignore')
 
-    # strict regex: allow optional whitespace, avoid matching longer numbers
+    # strict regex: avoid matching longer numbers; user should provide main article number (e.g. "2.01") to capture subparagraphs
     pat = re.compile(rf"\bArt(?:icle)?[\.:]?\s*{re.escape(target)}(?![0-9])", re.I)
 
     mask = df.apply(lambda row: any(isinstance(v, str) and pat.search(v) for v in row), axis=1)
@@ -80,43 +80,45 @@ def to_excel(df, target):
     ws = wb.active
     ws.title = 'Décisions'
     headers = [c for c in df.columns if c!='_url']
+    thin = Side(border_style="thin", color="000000")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
     
-    # insert title row for searched article, larger bold font on light yellow background
+    # title row for searched article
     ws.append([f"Article filtré : {target}"] + ['']*(len(headers)-1))
     title_fill = PatternFill('solid', fgColor='FFF2CC')
     for cell in ws[1]:
         cell.font = Font(bold=True, size=14)
         cell.fill = title_fill
         cell.alignment = Alignment(horizontal='center')
-    
-    # leave an empty row
+        cell.border = border
+    # empty row
     ws.append(['']*len(headers))
-
-    # header row with gray background and bold slightly larger text
+    
+    # header row
     ws.append(headers)
     header_fill = PatternFill('solid', fgColor='EDEDED')
     for cell in ws[3]:
         cell.font = Font(bold=True, size=12)
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal='center', wrapText=True)
+        cell.border = border
 
     # data rows
     for r_idx, row in enumerate(dataframe_to_rows(df[headers], index=False, header=False), start=4):
         for c_idx, val in enumerate(row, start=1):
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.alignment = Alignment(wrapText=True)
-        # hyperlink in Résumé column
+            cell.border = border
+        # hyperlink for Résumé
         url = df['_url'].iloc[r_idx-4]
-        if 'Résumé' in headers:
-            hl_col = headers.index('Résumé') + 1
-        else:
-            hl_col = len(headers)
+        hl_col = headers.index('Résumé')+1
         hl_cell = ws.cell(row=r_idx, column=hl_col, value='Résumé')
         if isinstance(url, str) and url.startswith('http'):
             hl_cell.hyperlink = url
             hl_cell.style = 'Hyperlink'
+        hl_cell.border = border
 
-    # highlight any cell containing the exact article
+    # highlight article occurrences
     pat = re.compile(rf"\bArt(?:icle)?[\.:]?\s*{re.escape(target)}(?![0-9])", re.I)
     for col in ws.columns:
         max_len = 0
@@ -156,6 +158,7 @@ def download():
 
 if __name__=='__main__':
     app.run()
+
 
 
 
