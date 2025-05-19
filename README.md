@@ -40,7 +40,13 @@ Ce projet propose une application web **Analyseur de Décisions Disciplinaires**
 
 ## 📁 Structure des fichiers
 
+```plaintext
+analyseur-discipline/
+├─ templates/
+│  ├─ index.html       # Formulaire et page d’accueil (upload + saisie article)
+│  └─ resultats.html   # Affichage des résultats (tableaux HTML & lien de téléchargement)
 ```
+
 analyseur-discipline/
 ├─ templates/
 │  ├─ index.html       # Page HTML du formulaire et rendu du tableau
@@ -50,32 +56,33 @@ analyseur-discipline/
 ├─ render.yaml         # Configuration Render pour le déploiement
 ├─ README.md           # Documentation du projet
 └─ LICENSE             # Licence MIT
-```
+
+````
 
 ---
 
 ### Colonnes requises dans le fichier Excel
 
-| Nom interne                        | Description                          |
-| ---------------------------------- | ------------------------------------ |
-| `numero de decision`               | Numéro unique de la décision         |
-| `nom de l’intime`                  | Nom de la personne sanctionnée       |
-| `articles enfreints`               | Liste des articles enfreints         |
-| `duree totale effective radiation` | Durée totale effective de radiation  |
-| `article amende/chef`              | Montant d’amende ou chef de sanction |
-| `autres sanctions`                 | Autres mesures disciplinaires        |
-| *(optionnel)* `résumé`             | URL vers le résumé de la décision    |
+| Nom interne                          | Description                                 |
+|--------------------------------------|---------------------------------------------|
+| `numero de decision`                 | Numéro unique de la décision                |
+| `nom de l’intime`                    | Nom de la personne sanctionnée              |
+| `articles enfreints`                 | Liste des articles enfreints                |
+| `duree totale effective radiation`   | Durée totale effective de radiation         |
+| `article amende/chef`                | Montant d’amende ou chef de sanction        |
+| `autres sanctions`                   | Autres mesures disciplinaires               |
+| *(optionnel)* `résumé`               | URL vers le résumé de la décision           |
 
 ---
 
 ## 🛠 Installation et exécution locale
 
 1. Cloner le dépôt :
-
    ```bash
    git clone https://github.com/<votre-utilisateur>/analyseur-discipline.git
    cd analyseur-discipline
-   ```
+````
+
 2. Installer les dépendances :
 
    ```bash
@@ -117,6 +124,7 @@ analyseur-discipline/
 * Développé par **Assistant GPT** & **Utilisateur** (2025)
 
 <sub>Licence MIT – Voir le fichier LICENSE pour plus de détails.</sub>
+
 
 
 
