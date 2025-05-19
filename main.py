@@ -4,6 +4,7 @@ from flask import Flask, request, render_template_string, send_file
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment
+from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
 
@@ -19,85 +20,82 @@ HTML_TEMPLATE = '''
 <hr>
 {% if table_html %}
   <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
-  <div style="overflow-x:auto; margin-top:10px;">
+  <div style="overflow-x:auto; margin-top:10px; width:100%;">
     {{ table_html | safe }}
   </div>
 {% endif %}
 '''  
 
-# lecture et filtrage
 def process(df, target):
-    # recensement des colonnes URL de résumé
+    # identifier colonne résumé brute
     summary_col = next((c for c in df.columns if 'résumé' in c.lower()), None)
+    # supprimer toutes colonnes raw contenant 'resume'
+    drop_cols = [c for c in df.columns if re.search(r'resum', c, re.I) and c != summary_col]
+    df.drop(columns=drop_cols, inplace=True)
 
-    # nettoyage colonnes inutile
-    # on supprime toute ancienne url brute s'appelant 'resume' ou similaire
-    url_cols = [c for c in df.columns if re.search(r'resum', c, re.I)]
-    if summary_col:
-        url_cols.remove(summary_col)
-    for c in url_cols:
-        df.drop(columns=c, inplace=True)
+    # pattern exact Article n (éviter 149, 140, etc.)
+    pat = re.compile(rf"Article\s+{target}\b", re.I)
 
-    # pattern exact article: art. 14 (word-boundary)
-    pat = re.compile(rf"\b{target}\b")
-
-    # filtrage des lignes contenant le target dans n'importe quelle colonne texte
+    # filtrer lignes où l'article apparaît
     mask = df.apply(lambda row: any(isinstance(v, str) and pat.search(v) for v in row), axis=1)
     filtered = df[mask].copy()
 
-    # création colonne 'Résumé' hyperlien
+    # colonne Résumé hyperlien
     if summary_col:
-        filtered['Résumé'] = filtered[summary_col].apply(
-            lambda u: f'<a href="{u}">Résumé</a>' if pd.notna(u) else '')
+        filtered['Résumé'] = filtered[summary_col].fillna('').apply(
+            lambda u: f'<a href="{u}">Résumé</a>' if u else '')
+    else:
+        filtered['Résumé'] = ''
 
     return filtered
 
-# génération Excel formaté
+
 def to_excel(df):
     wb = Workbook()
     ws = wb.active
-    ws.title = 'Filtered'
+    ws.title = 'Décisions'
 
-    # écriture des en-têtes
+    # écrire en-têtes
     ws.append(list(df.columns))
     for cell in ws[1]:
         cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal='center')
+        cell.alignment = Alignment(horizontal='center', wrapText=True)
 
-    # écriture données
+    # écrire données
     for r in dataframe_to_rows(df, index=False, header=False):
         ws.append(r)
 
-    # style: auto width + wrap text + rouge pour target
+    # style colonnes: largeur fixe, retour à la ligne, rouge si article présent
+    target = app.config.get('TARGET', '')
+    pat_cell = re.compile(rf"Article\s+{target}\b", re.I)
     for col in ws.columns:
         max_len = 0
         for cell in col:
             cell.alignment = Alignment(wrapText=True)
-            val = str(cell.value or '')
-            max_len = max(max_len, len(val))
-            # surlignage rouge si contient target
-            if re.search(rf"\b{app.config['TARGET']}\b", val):
+            text = str(cell.value or '')
+            max_len = max(max_len, len(text))
+            if pat_cell.search(text):
                 cell.font = Font(color='FF0000')
-        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 50)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
 
-    bio = BytesIO()
-    wb.save(bio)
-    bio.seek(0)
-    return bio
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
 
 @app.route('/', methods=['GET', 'POST'])
 def analyze():
     table_html = None
     if request.method == 'POST':
         file = request.files['file']
-        target = request.form['article']
+        target = request.form['article'].strip()
         app.config['TARGET'] = target
 
         df = pd.read_excel(file)
         filtered = process(df, target)
-        # conversion HTML
+        # HTML
         table_html = filtered.to_html(index=False, escape=False)
-        # sauvegarde pour téléchargement
+        # préparer download
         app.config['EXCEL_BUF'] = to_excel(filtered)
 
     return render_template_string(HTML_TEMPLATE, table_html=table_html)
@@ -109,6 +107,7 @@ def download():
 
 if __name__ == '__main__':
     app.run()
+
 
 
 
