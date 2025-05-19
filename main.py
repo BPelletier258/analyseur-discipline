@@ -57,13 +57,13 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# pattern stricte
+# construction of strict regex pattern
 
 def build_pattern(article):
     art = re.escape(article)
     return rf"\b{art}(?![0-9])"
 
-# styles Excel
+# Excel styles
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 red_font = Font(color="FF0000")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
@@ -76,53 +76,58 @@ def analyze():
         file = request.files['file']
         article = request.form['article'].strip()
         df = pd.read_excel(file)
-        # retirer colonnes Résumé
-        url_cols = [c for c in df.columns if 'Résumé' in c]
-        df.drop(columns=url_cols, inplace=True, errors='ignore')
-        # pattern et repérage
+        # conserver la colonne Résumé, supprimer uniquement la colonne brute "resume"
+        df.drop(columns=['resume'], inplace=True, errors='ignore')
+
+        # repérer les cellules à colorer
         pat = build_pattern(article)
         highlights = []
         for idx, row in df.iterrows():
             for col in df.columns:
                 if re.search(pat, str(row[col])):
                     highlights.append((idx, col))
-        # filtrer
+        # filtrer lignes
         mask = df.apply(lambda r: any(re.search(pat, str(v)) for v in r), axis=1)
         df_filtered = df[mask].copy()
-        # HTML
-        table_html = df_filtered.to_html(index=False)
+
+        # HTML avec colonne Résumé
+        table_html = df_filtered.to_html(index=False, escape=False)
+
         # Excel
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
-        # écriture de l'article en haut
+        # titre article
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_filtered.columns))
         top = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
         top.font = Font(size=14, bold=True)
-        # header style
+
+        # en-têtes
         for i, col in enumerate(df_filtered.columns, start=1):
             c = ws.cell(row=2, column=i, value=col)
             c.fill = grey_fill
             c.font = Font(size=12, bold=True)
             c.border = border
             c.alignment = wrap_alignment
+
         # données
         for r, row in enumerate(dataframe_to_rows(df_filtered, index=False, header=False), start=3):
             for c_idx, val in enumerate(row, start=1):
                 cell = ws.cell(row=r, column=c_idx, value=val)
                 cell.border = border
                 cell.alignment = wrap_alignment
-        # highlights
+        # coloration
         for r_idx, col in highlights:
             if mask.iloc[r_idx]:
                 col_idx = df_filtered.columns.get_loc(col) + 1
                 row_number = list(df_filtered.index).index(r_idx) + 3
-                cell = ws.cell(row=row_number, column=col_idx)
-                cell.font = red_font
-        # ajustement largeur
-        for i, _ in enumerate(df_filtered.columns, start=1):
-            col_letter = get_column_letter(i)
-            ws.column_dimensions[col_letter].width = 20
+                ws.cell(row=row_number, column=col_idx).font = red_font
+
+        # largeur fixe
+        for i in range(1, len(df_filtered.columns)+1):
+            letter = get_column_letter(i)
+            ws.column_dimensions[letter].width = 20
+
         wb.save(output)
         output.seek(0)
         last_excel = output.getvalue()
@@ -138,6 +143,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
