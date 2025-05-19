@@ -39,7 +39,7 @@ HTML_TEMPLATE = '''
       <label for="file">Fichier Excel</label>
       <input type="file" id="file" name="file" required>
       <label for="article">Numéro d'article</label>
-      <input type="text" id="article" name="article" value="" placeholder="ex: 14 ou 59(2)" required>
+      <input type="text" id="article" name="article" placeholder="ex: 14 ou 59(2)" required>
       <button type="submit">Analyser</button>
     </form>
   </div>
@@ -58,11 +58,10 @@ HTML_TEMPLATE = '''
 '''
 
 # build regex for strict HTML highlighting: only match when preceded by "Art." or "Art:" and exact article
-# e.g. Art. 14 or Art: 14 but not dates
+# e.g. Art. 14 or Art: 14
 
 def html_pattern(article):
     a = re.escape(article)
-    # Art. or Art: plus optional space
     return rf"(Art\.?|Art:)\s*{a}(?![0-9A-Za-z])"
 
 # Excel styles
@@ -90,22 +89,24 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
         df_raw = pd.read_excel(file)
-        # find summary col
-        summary_col = next((c for c in df_raw.columns if c.lower()=='résumé'), None)
-        # filter rows containing article anywhere
-        pat = re.compile(rf'(?<![0-9]){re.escape(article)}(?![0-9])')
-        mask = df_raw.apply(lambda r: any(pat.search(str(v)) for v in r), axis=1)
-        df = df_raw[mask].copy()
-        # build HTML df
+        # force filter only on 'articles enfreints' column
+        target_col = next((c for c in df_raw.columns if c.lower()=='articles enfreints'), None)
+        if target_col is None:
+            df = df_raw.copy()
+        else:
+            pat = re.compile(rf'(?<![0-9]){re.escape(article)}(?![0-9])')
+            df = df_raw[df_raw[target_col].astype(str).apply(lambda s: bool(pat.search(s)))].copy()
+        # summary column
+        summary_col = next((c for c in df.columns if c.lower()=='résumé'), None)
+        # prepare HTML df
         html_df = df.copy()
-        # convert summary to link
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(
                 lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else ''
             )
             cols = [c for c in html_df.columns if c!=summary_col] + [summary_col]
             html_df = html_df[cols]
-        # apply HTML highlighting on specific columns
+        # apply HTML highlighting
         hpat = re.compile(html_pattern(article))
         for col in html_df.columns:
             if col.lower() in disp_cols:
@@ -113,37 +114,35 @@ def analyze():
                     lambda s: hpat.sub(r'<span class="highlight">\g<0></span>', s)
                 )
         table_html = html_df.to_html(index=False, escape=False)
-        # generate Excel (unchanged)
+        # build Excel output (unchanged)
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df.columns))
-        cell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
-        cell.font = Font(size=14, bold=True)
-        # headers
+        c = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
+        c.font = Font(size=14, bold=True)
         for idx, col in enumerate(df.columns, start=1):
-            c = ws.cell(row=2, column=idx, value=col)
-            c.fill = grey_fill
-            c.font = Font(size=12, bold=True)
-            c.border = border
-            c.alignment = wrap_alignment
-        # rows
-        for r_idx, (_, row) in enumerate(df.iterrows(), start=3):
-            for c_idx, col in enumerate(df.columns, start=1):
-                ce = ws.cell(row=r_idx, column=c_idx)
-                ce.border = border
-                ce.alignment = wrap_alignment
+            h = ws.cell(row=2, column=idx, value=col)
+            h.fill = grey_fill
+            h.font = Font(size=12, bold=True)
+            h.border = border
+            h.alignment = wrap_alignment
+        for r, (_, row) in enumerate(df.iterrows(), start=3):
+            for cidx, col in enumerate(df.columns, start=1):
+                cell = ws.cell(row=r, column=cidx)
+                cell.border = border
+                cell.alignment = wrap_alignment
                 if summary_col and col==summary_col:
                     url = row[col]
-                    ce.value = 'Résumé'
-                    ce.hyperlink = url
-                    ce.font = link_font
+                    cell.value = 'Résumé'
+                    cell.hyperlink = url
+                    cell.font = link_font
                 else:
-                    ce.value = row[col]
+                    cell.value = row[col]
                 if col.lower() in disp_cols and re.search(rf'(?<![0-9]){re.escape(article)}(?![0-9])', str(row[col])):
-                    ce.font = red_font
-        for idx in range(1, len(df.columns)+1):
-            ws.column_dimensions[get_column_letter(idx)].width = 20
+                    cell.font = red_font
+        for i in range(1, len(df.columns)+1):
+            ws.column_dimensions[get_column_letter(i)].width = 20
         wb.save(output)
         output.seek(0)
         last_excel = output.getvalue()
@@ -159,6 +158,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
