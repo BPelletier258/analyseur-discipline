@@ -55,25 +55,29 @@ HTML_TEMPLATE = '''
   {% endif %}
 </body>
 </html>
-''' 
+'''
 
-# build regex for strict HTML highlighting: must be prefixed Art. or Art:
+# build regex for strict HTML highlighting: only match when preceded by "Art." or "Art:" and exact article
+# e.g. Art. 14 or Art: 14 but not dates
+
 def html_pattern(article):
     a = re.escape(article)
-    return rf"(Art[\.:]\s*{a})(?![0-9A-Za-z])"
+    # Art. or Art: plus optional space
+    return rf"(Art\.?|Art:)\s*{a}(?![0-9A-Za-z])"
 
-# Excel styles (unchanged)
+# Excel styles
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 red_font = Font(color="FF0000")
 link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# columns eligible for HTML highlighting
+# columns eligible for HTML highlighting (lowercased)
 disp_cols = {
     'articles enfreints',
-    'périodes de radiation',
-    'amendes',
+    'durée totale effective radiation',
+    'article amende/chef',
+    'total des amendes',
     'autres sanctions'
 }
 
@@ -96,31 +100,34 @@ def analyze():
         html_df = df.copy()
         # convert summary to link
         if summary_col:
-            html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
-            # move summary last
+            html_df[summary_col] = html_df[summary_col].apply(
+                lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else ''
+            )
             cols = [c for c in html_df.columns if c!=summary_col] + [summary_col]
             html_df = html_df[cols]
         # apply HTML highlighting on specific columns
         hpat = re.compile(html_pattern(article))
         for col in html_df.columns:
             if col.lower() in disp_cols:
-                html_df[col] = html_df[col].astype(str).apply(lambda s: hpat.sub(r'<span class="highlight">\1</span>', s))
+                html_df[col] = html_df[col].astype(str).apply(
+                    lambda s: hpat.sub(r'<span class="highlight">\g<0></span>', s)
+                )
         table_html = html_df.to_html(index=False, escape=False)
-        # create Excel as before (unchanged)
+        # generate Excel (unchanged)
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df.columns))
         cell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
         cell.font = Font(size=14, bold=True)
-        # headers row
+        # headers
         for idx, col in enumerate(df.columns, start=1):
             c = ws.cell(row=2, column=idx, value=col)
             c.fill = grey_fill
             c.font = Font(size=12, bold=True)
             c.border = border
             c.alignment = wrap_alignment
-        # data rows
+        # rows
         for r_idx, (_, row) in enumerate(df.iterrows(), start=3):
             for c_idx, col in enumerate(df.columns, start=1):
                 ce = ws.cell(row=r_idx, column=c_idx)
@@ -135,7 +142,6 @@ def analyze():
                     ce.value = row[col]
                 if col.lower() in disp_cols and re.search(rf'(?<![0-9]){re.escape(article)}(?![0-9])', str(row[col])):
                     ce.font = red_font
-        # column widths
         for idx in range(1, len(df.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 20
         wb.save(output)
@@ -153,6 +159,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
