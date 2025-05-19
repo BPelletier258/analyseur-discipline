@@ -44,7 +44,7 @@ HTML_TEMPLATE = '''
   </div>
   <hr>
   {% if searched_article %}
-    <div class="article-label">Article recherché : {{ searched_article }}</div>
+    <div class="article-label">Article recherché : {{ searched_article }}</div>
   {% endif %}
   {% if table_html %}
     <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
@@ -68,7 +68,7 @@ link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# columns eligible for highlighting
+# columns eligible for highlighting in Excel
 HIGHLIGHT_COLS = {
     'articles enfreints',
     'durée totale effective radiation',
@@ -86,8 +86,10 @@ def analyze():
         df_raw = pd.read_excel(file)
         summary_col = next((c for c in df_raw.columns if c.lower() == 'résumé'), None)
         pat = build_pattern(article)
-        mask = df_raw.apply(lambda r: any(re.search(pat, str(v)) for v in r), axis=1)
+        # filter rows containing the article in any cell
+        mask = df_raw.apply(lambda r: any(re.search(pat, str(v), flags=re.IGNORECASE) for v in r), axis=1)
         df_filtered = df_raw[mask].copy()
+        # prepare HTML table
         html_df = df_filtered.copy()
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(
@@ -96,11 +98,21 @@ def analyze():
             cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
             html_df = html_df[cols]
         table_html = html_df.to_html(index=False, escape=False)
+        # inject red+bold spans in targeted cells of the HTML table
+        art = re.escape(article)
+        # match any <td> containing the article pattern
+        pattern_td = rf'(<td[^>]*>)([^<]*\b{art}\b[^<]*)(</td>)'
+        def mark_cell(m):
+            before, content, after = m.groups()
+            new = re.sub(rf'(?<!\w)({art})(?!\w)', r'<span style="color:red;font-weight:bold">\1</span>', content, flags=re.IGNORECASE)
+            return before + new + after
+        table_html = re.sub(pattern_td, mark_cell, table_html, flags=re.IGNORECASE)
+        # build Excel file
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_filtered.columns))
-        tcell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
+        tcell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
         tcell.font = Font(size=14, bold=True)
         for idx, col in enumerate(df_filtered.columns, start=1):
             c = ws.cell(row=2, column=idx, value=col)
@@ -120,7 +132,7 @@ def analyze():
                     cell.font = link_font
                 else:
                     cell.value = row[col]
-                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
+                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col]), flags=re.IGNORECASE):
                     cell.font = red_font
         for idx in range(1, len(df_filtered.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 20
@@ -140,6 +152,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
