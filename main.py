@@ -22,7 +22,7 @@ INDEX_HTML = '''
     .table-container { width: 100%; overflow-x: auto; }
     table.discipline {
       border-collapse: collapse;
-      width: auto;
+      width: 100%;
       min-width: 800px;
     }
     th, td {
@@ -41,7 +41,7 @@ INDEX_HTML = '''
   <h1>Analyse Disciplinaire</h1>
   <form action="/analyze" method="post" enctype="multipart/form-data">
     <label>Fichier Excel: <input type="file" name="file" required></label><br><br>
-    <label>Article à filtrer: <input type="text" name="article" value="14" size="4"></label><br><br>
+    <label>Article à filtrer: <input type="text" name="article" value="14" size="6"></label><br><br>
     <button type="submit">Analyser</button>
   </form>
   <hr>
@@ -56,10 +56,10 @@ INDEX_HTML = '''
 '''
 
 def make_regex(article):
-    # build regex to match exact article (e.g. 14, 59.2, 59(2)) without catching longer numbers
-    art = re.escape(str(article).strip())
-    # allow optional decimal or parentheses
-    return re.compile(rf"\bArt\.?\s*{art}(?:[\s\.]|\b|\))", re.IGNORECASE)
+    # build regex matching exact article numbers (no partial matches)
+    art = re.escape(article.strip())
+    # match Art. 14, Art. 14(2), Art.14.1, but not Art. 149.1
+    return re.compile(rf"(?<!\d)Art\.?\s*{art}(?:\b|(?=[^\d]))", re.IGNORECASE)
 
 @app.route('/', methods=['GET'])
 def index():
@@ -74,7 +74,7 @@ def analyze():
     # read uploaded Excel
     df = pd.read_excel(uploaded)
 
-    # detect original summary column and re-create 'Résumé' with proper link
+    # rebuild summary column
     summary_cols = [c for c in df.columns if 'résumé' in c.lower() or 'resume' in c.lower()]
     if summary_cols:
         src = summary_cols[0]
@@ -124,6 +124,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
