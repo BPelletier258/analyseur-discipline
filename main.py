@@ -8,6 +8,7 @@ from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
 last_excel = None
+last_article = None
 
 HTML_TEMPLATE = '''
 <!doctype html>
@@ -53,7 +54,7 @@ HTML_TEMPLATE = '''
   {% endif %}
 </body>
 </html>
-'''
+''' 
 
 # strict regex: no digit boundaries
 def build_pattern(article):
@@ -77,45 +78,36 @@ HIGHLIGHT_COLS = {
 
 @app.route('/', methods=['GET','POST'])
 def analyze():
-    global last_excel
+    global last_excel, last_article
     if request.method == 'POST':
         file = request.files['file']
         article = request.form['article'].strip()
+        last_article = article
         df_raw = pd.read_excel(file)
-        # detect summary column
         summary_col = next((c for c in df_raw.columns if c.lower() == 'résumé'), None)
-        # build search pattern
         pat = build_pattern(article)
-        # filter rows containing article in any field
         mask = df_raw.apply(lambda r: any(re.search(pat, str(v)) for v in r), axis=1)
         df_filtered = df_raw[mask].copy()
-        # prepare HTML table; convert summary URLs
         html_df = df_filtered.copy()
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(
                 lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else ''
             )
-        # ensure Résumé column is last
-        if summary_col:
             cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
             html_df = html_df[cols]
         table_html = html_df.to_html(index=False, escape=False)
-        # prepare Excel output
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
-        # title row with searched article
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_filtered.columns))
         tcell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
         tcell.font = Font(size=14, bold=True)
-        # header row
         for idx, col in enumerate(df_filtered.columns, start=1):
             c = ws.cell(row=2, column=idx, value=col)
             c.fill = grey_fill
             c.font = Font(size=12, bold=True)
             c.border = border
             c.alignment = wrap_alignment
-        # data rows
         for r_idx, (_, row) in enumerate(df_filtered.iterrows(), start=3):
             for c_idx, col in enumerate(df_filtered.columns, start=1):
                 cell = ws.cell(row=r_idx, column=c_idx)
@@ -128,10 +120,8 @@ def analyze():
                     cell.font = link_font
                 else:
                     cell.value = row[col]
-                # only highlight in allowed columns
                 if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
                     cell.font = red_font
-        # adjust column widths
         for idx in range(1, len(df_filtered.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 20
         wb.save(output)
@@ -142,13 +132,15 @@ def analyze():
 
 @app.route('/download')
 def download():
-    global last_excel
-    if not last_excel:
+    global last_excel, last_article
+    if not last_excel or not last_article:
         return redirect(url_for('analyze'))
-    return send_file(BytesIO(last_excel), as_attachment=True, download_name='decisions_filtrees.xlsx')
+    fname = f"decisions_filtrees_{last_article}.xlsx"
+    return send_file(BytesIO(last_excel), as_attachment=True, download_name=fname)
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
