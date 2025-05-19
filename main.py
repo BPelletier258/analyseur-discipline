@@ -56,25 +56,22 @@ HTML_TEMPLATE = '''
 '''
 
 def process(df, target):
-    # identify and extract any URL columns (résumé links)
+    # identify URL columns for summary
     url_col = next((c for c in df.columns if re.search(r'r[eé]sum', c, re.I)), None)
     urls = df[url_col] if url_col else pd.Series(['']*len(df), index=df.index)
-    # drop all URL columns to avoid raw links in output
+    # drop raw URL/link columns
     all_urls = [c for c in df.columns if df[c].astype(str).str.startswith('http').any()]
     df = df.drop(columns=all_urls, errors='ignore')
 
-    # strict regex: match "Art:" or "Art." or "Article" plus exact number, not prefixes of larger numbers
-    t = re.escape(target)
-    pat = re.compile(rf"\bArt(?:icle)?[\.:]?\s*{t}(?![0-9])", re.I)
+    # strict regex: allow optional whitespace, avoid matching longer numbers
+    pat = re.compile(rf"\bArt(?:icle)?[\.:]?\s*{re.escape(target)}(?![0-9])", re.I)
 
-    # filter rows where any cell contains the target pattern
     mask = df.apply(lambda row: any(isinstance(v, str) and pat.search(v) for v in row), axis=1)
     filtered = df[mask].copy()
 
-    # attach the original URL values for later hyperlink
     filtered['_url'] = urls[filtered.index]
-    # prepare HTML "Résumé" link
-    filtered['Résumé'] = filtered['_url'].apply(lambda v: f'<a class="summary-col" href="{v}" target="_blank">Résumé</a>' if isinstance(v, str) and v.startswith('http') else '')
+    filtered['Résumé'] = filtered['_url'].apply(lambda v: f'<a class="summary-col" href="{v}" target="_blank">Résumé</a>' 
+                                               if isinstance(v, str) and v.startswith('http') else '')
     return filtered
 
 
@@ -82,13 +79,11 @@ def to_excel(df, target):
     wb = Workbook()
     ws = wb.active
     ws.title = 'Décisions'
-    # headers
     headers = [c for c in df.columns if c!='_url']
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal='center', wrapText=True)
-    # fill rows and hyperlinks
     for r_idx, row in enumerate(dataframe_to_rows(df[headers], index=False, header=False), start=2):
         for c_idx, val in enumerate(row, start=1):
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
@@ -98,15 +93,15 @@ def to_excel(df, target):
         if isinstance(url, str) and url.startswith('http'):
             hl_cell.hyperlink = url
             hl_cell.style = 'Hyperlink'
-    # highlight all cells matching the pattern in red
-    pat = re.compile(rf"\bArt(?:icle)?[\.:]?{re.escape(target)}(?![0-9])", re.I)
+    # highlight any cell containing the exact article
+    pat = re.compile(rf"\bArt(?:icle)?[\.:]?\s*{re.escape(target)}(?![0-9])", re.I)
     for col in ws.columns:
         max_len = 0
         for cell in col:
             txt = str(cell.value or '')
-            max_len = max(max_len, len(txt))
             if cell.row>1 and pat.search(txt):
                 cell.font = Font(color='FF0000')
+            max_len = max(max_len, len(txt))
         col_letter = col[0].column_letter
         ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
 
@@ -138,6 +133,7 @@ def download():
 
 if __name__=='__main__':
     app.run()
+
 
 
 
