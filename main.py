@@ -5,12 +5,10 @@ from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
 
 # stockage du dernier Excel généré
-global last_excel
 last_excel = None
 
 HTML_TEMPLATE = '''
@@ -58,12 +56,12 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# construction of strict regex pattern
+# regex strict : ne pas capturer Article12 dans 120
 def build_pattern(article):
     art = re.escape(article)
-    return rf"\b{art}(?![0-9])"
+    return rf"(?<![0-9]){art}(?![0-9])"
 
-# Excel styles
+# styles Excel
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 red_font = Font(color="FF0000")
 link_font = Font(color="0000FF", underline="single")
@@ -76,65 +74,57 @@ def analyze():
     if request.method == 'POST':
         file = request.files['file']
         article = request.form['article'].strip()
-        # lecture<br> df_raw = pd.read_excel(file)
-        # récupérer URL résumé si présente
-        summary_col = None
-        for col in df_raw.columns:
-            if col.lower() == 'résumé' or col.lower() == 'resume':
-                summary_col = col
-                break
-        # supprimer colonne brute nommée 'resume' (petites lettres)
+        df_raw = pd.read_excel(file)
+        # identifier la colonne résumé
+        summary_col = next((c for c in df_raw.columns if c.lower()=='résumé'), None)
+        # préparer df sans col 'resume'
         df = df_raw.drop(columns=['resume'], errors='ignore')
-        # repérer cellules à colorer
+        # construire pattern
         pat = build_pattern(article)
-        highlights = []
-        for idx, row in df.iterrows():
-            for col in df.columns:
-                if re.search(pat, str(row[col])):
-                    highlights.append((idx, col))
+        # repérer cellules à colorer
+        highlights = [(i, col) for i, row in df.iterrows() for col in df.columns if re.search(pat, str(row[col]))]
         # filtrer lignes
         mask = df.apply(lambda r: any(re.search(pat, str(v)) for v in r), axis=1)
         df_filtered = df[mask].copy()
-        # HTML<br> table_html = df_filtered.to_html(index=False, escape=False)
+        # HTML
+        table_html = df_filtered.to_html(index=False, escape=False)
         # Excel
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
-        # titre article
+        # ligne titre
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_filtered.columns))
-        top = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
-        top.font = Font(size=14, bold=True)
-        # en-têtes
-        for i, col in enumerate(df_filtered.columns, start=1):
-            c = ws.cell(row=2, column=i, value=col)
+        tcell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
+        tcell.font = Font(size=14, bold=True)
+        # entetes
+        for idx, col in enumerate(df_filtered.columns, start=1):
+            c = ws.cell(row=2, column=idx, value=col)
             c.fill = grey_fill
             c.font = Font(size=12, bold=True)
             c.border = border
             c.alignment = wrap_alignment
-        # données et liens
-        for r, idx in enumerate(df_filtered.index, start=3):
+        # données
+        for r_idx, (orig_idx, row) in enumerate(df_filtered.iterrows(), start=3):
             for c_idx, col in enumerate(df_filtered.columns, start=1):
-                val = df_filtered.at[idx, col]
-                cell = ws.cell(row=r, column=c_idx)
+                cell = ws.cell(row=r_idx, column=c_idx)
                 cell.border = border
-                cell.alignment = wrap_text=True, vertical='top'
-                if col == summary_col:
-                    url = df_filtered.at[idx, summary_col]
+                cell.alignment = wrap_alignment
+                if summary_col and col==summary_col:
+                    url = row[summary_col]
                     cell.value = 'Résumé'
                     cell.hyperlink = url
                     cell.font = link_font
                 else:
-                    cell.value = val
-        # coloration
-        for r_idx, col in highlights:
-            if mask.loc[r_idx]:
-                row_num = list(df_filtered.index).index(r_idx) + 3
-                col_num = df_filtered.columns.get_loc(col) + 1
-                ws.cell(row=row_num, column=col_num).font = red_font
-        # largeur et wrap
+                    cell.value = row[col]
+        # appliquer couleur rouge
+        for i, col in highlights:
+            if mask.loc[i]:
+                rr = list(df_filtered.index).index(i) + 3
+                cc = df_filtered.columns.get_loc(col) + 1
+                ws.cell(row=rr, column=cc).font = red_font
+        # colonnes largeur
         for i in range(1, len(df_filtered.columns)+1):
-            letter = get_column_letter(i)
-            ws.column_dimensions[letter].width = 20
+            ws.column_dimensions[get_column_letter(i)].width = 20
         wb.save(output)
         output.seek(0)
         last_excel = output.getvalue()
@@ -150,6 +140,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
