@@ -55,7 +55,7 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# build strict regex: no digits around
+# strict regex: no digit boundaries
 def build_pattern(article):
     art = re.escape(article)
     return rf'(?<![0-9]){art}(?![0-9])'
@@ -67,6 +67,14 @@ link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
+# columns eligible for highlighting
+HIGHLIGHT_COLS = {
+    'articles enfreints',
+    'durée totale effective radiation',
+    'article amende/chef',
+    'autres sanctions'
+}
+
 @app.route('/', methods=['GET','POST'])
 def analyze():
     global last_excel
@@ -75,28 +83,32 @@ def analyze():
         article = request.form['article'].strip()
         df_raw = pd.read_excel(file)
         # detect summary column
-        summary_col = next((c for c in df_raw.columns if c.lower()=='résumé'), None)
-        # pattern
+        summary_col = next((c for c in df_raw.columns if c.lower() == 'résumé'), None)
+        # build search pattern
         pat = build_pattern(article)
-        # filter rows
+        # filter rows containing article in any field
         mask = df_raw.apply(lambda r: any(re.search(pat, str(v)) for v in r), axis=1)
         df_filtered = df_raw[mask].copy()
-        # prepare HTML: convert summary to link text
+        # prepare HTML table; convert summary URLs
         html_df = df_filtered.copy()
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(
                 lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else ''
             )
+        # ensure Résumé column is last
+        if summary_col:
+            cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
+            html_df = html_df[cols]
         table_html = html_df.to_html(index=False, escape=False)
-        # prepare Excel
+        # prepare Excel output
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
-        # title row
+        # title row with searched article
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_filtered.columns))
         tcell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
         tcell.font = Font(size=14, bold=True)
-        # headers
+        # header row
         for idx, col in enumerate(df_filtered.columns, start=1):
             c = ws.cell(row=2, column=idx, value=col)
             c.fill = grey_fill
@@ -104,24 +116,22 @@ def analyze():
             c.border = border
             c.alignment = wrap_alignment
         # data rows
-        # track highlight only for columns with 'article' in name
-        article_cols = [c for c in df_filtered.columns if 'article' in c.lower()]
-        for r_idx, (i, row) in enumerate(df_filtered.iterrows(), start=3):
+        for r_idx, (_, row) in enumerate(df_filtered.iterrows(), start=3):
             for c_idx, col in enumerate(df_filtered.columns, start=1):
                 cell = ws.cell(row=r_idx, column=c_idx)
                 cell.border = border
                 cell.alignment = wrap_alignment
-                if summary_col and col==summary_col:
+                if summary_col and col == summary_col:
                     url = row[col]
                     cell.value = 'Résumé'
                     cell.hyperlink = url
                     cell.font = link_font
                 else:
                     cell.value = row[col]
-                # highlight red only in article columns
-                if col in article_cols and re.search(pat, str(row[col])):
+                # only highlight in allowed columns
+                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
                     cell.font = red_font
-        # set column widths
+        # adjust column widths
         for idx in range(1, len(df_filtered.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 20
         wb.save(output)
@@ -139,6 +149,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
