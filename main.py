@@ -1,131 +1,115 @@
-
 import re
-from io import BytesIO
-from flask import Flask, request, render_template_string, send_file
 import pandas as pd
+from flask import Flask, request, render_template_string, send_file
+from io import BytesIO
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.styles import Font, Alignment
 
 app = Flask(__name__)
 
-# ――― Paramètres ―――
-TARGET_ARTICLE = r"\bArt[.]\s*14\b"  # vous pourrez remplacer 14 dynamiquement si besoin
-CELL_HIGHLIGHT = PatternFill(fill_type="solid", fgColor="FFCCCC")  # rose pâle
-RED_FONT = Font(color="FF0000")
-LINK_FONT = Font(underline="single", color="0000FF")
-
-HTML_TEMPLATE = """
+HTML_TEMPLATE = '''
 <!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8">
-  <title>Analyse Discipliniare</title>
-  <style>
-    body { font-family: sans-serif; padding: 1em; }
-    .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ccc; padding: 4px 8px; white-space: nowrap; }
-    th { background: #f5f5f5; }
-  </style>
-</head>
-<body>
-  <h1>Analyse Discipliniare</h1>
-  <form method="POST" enctype="multipart/form-data">
-    <label>Fichier Excel: <input type="file" name="excel"></label><br><br>
-    <label>Article à filtrer: <input name="article" value="{{article}}"></label><br><br>
-    <button>Analyser</button>
-  </form>
-  {% if table_html %}
-    <hr>
-    <div class="table-container">
-      {{ table_html|safe }}
-    </div>
-    <p><a href="{{ download_url }}">⬇️ Télécharger le fichier Excel formaté</a></p>
-  {% endif %}
-</body>
-</html>
-"""
+<title>Analyse Disciplinaire</title>
+<h1>Analyse Disciplinaire</h1>
+<form method="post" enctype="multipart/form-data">
+  Fichier Excel: <input type="file" name="file"><br>
+  Article à filtrer: <input type="text" name="article" value="14"><br>
+  <button type="submit">Analyser</button>
+</form>
+<hr>
+{% if table_html %}
+  <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
+  <div style="overflow-x:auto; margin-top:10px;">
+    {{ table_html | safe }}
+  </div>
+{% endif %}
+'''  
 
-@app.route("/", methods=["GET", "POST"])
-def analyze():
-    table_html = download_url = None
-    article = "14"
-    if request.method == "POST":
-        f = request.files.get("excel")
-        article = request.form.get("article", article).strip()
-        regex = re.compile(rf"\bArt[.]\s*{article}\b")
-        df = pd.read_excel(f)
-        # normalise noms de colonnes, etc., si nécessaire
-        # filtrage strict
-        mask = df.apply(lambda row: row.astype(str).str.contains(regex).any(), axis=1)
-        filtered = df[mask].copy()
-        # ajoute la colonne Résumé en hyperlien
-        filtered["Résumé"] = filtered["Résumé"].apply(
-            lambda url: f'<a href="{url}">Résumé</a>'
-        )
-        # colorisation Excel : on fera dans la génération .xlsx
-        # conversion en table HTML
-        table_html = filtered.to_html(index=False, escape=False)
-        # sauvegarde en mémoire du fichier Excel
-        bio = BytesIO()
-        export_excel(filtered, bio, regex)
-        bio.seek(0)
-        download_url = "/download"
-        # stocker en session ou global pour /download
-        app.config["EXCEL_BIO"] = bio
+# lecture et filtrage
+def process(df, target):
+    # recensement des colonnes URL de résumé
+    summary_col = next((c for c in df.columns if 'résumé' in c.lower()), None)
 
-    return render_template_string(
-        HTML_TEMPLATE,
-        table_html=table_html,
-        download_url=download_url,
-        article=article
-    )
+    # nettoyage colonnes inutile
+    # on supprime toute ancienne url brute s'appelant 'resume' ou similaire
+    url_cols = [c for c in df.columns if re.search(r'resum', c, re.I)]
+    if summary_col:
+        url_cols.remove(summary_col)
+    for c in url_cols:
+        df.drop(columns=c, inplace=True)
 
-@app.route("/download")
-def download():
-    bio = app.config.get("EXCEL_BIO")
-    return send_file(
-        bio,
-        as_attachment=True,
-        download_name=f"décisions_article_{request.args.get('article','14')}_formaté.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    # pattern exact article: art. 14 (word-boundary)
+    pat = re.compile(rf"\b{target}\b")
 
-def export_excel(df, stream, regex):
+    # filtrage des lignes contenant le target dans n'importe quelle colonne texte
+    mask = df.apply(lambda row: any(isinstance(v, str) and pat.search(v) for v in row), axis=1)
+    filtered = df[mask].copy()
+
+    # création colonne 'Résumé' hyperlien
+    if summary_col:
+        filtered['Résumé'] = filtered[summary_col].apply(
+            lambda u: f'<a href="{u}">Résumé</a>' if pd.notna(u) else '')
+
+    return filtered
+
+# génération Excel formaté
+def to_excel(df):
     wb = Workbook()
     ws = wb.active
-    ws.title = "Décisions filtrées"
+    ws.title = 'Filtered'
 
-    # écrire l’entête
+    # écriture des en-têtes
     ws.append(list(df.columns))
     for cell in ws[1]:
         cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        cell.fill = PatternFill(fill_type="solid", fgColor="DDDDDD")
+        cell.alignment = Alignment(horizontal='center')
 
-    # écrire les lignes et colorer
-    for row_idx, row in enumerate(dataframe_to_rows(df, index=False, header=False), start=2):
-        for col_idx, val in enumerate(row, start=1):
-            cell = ws.cell(row=row_idx, column=col_idx, value=val)
-            cell.alignment = Alignment(wrap_text=True, vertical="top")
-            if isinstance(val, str) and regex.search(val):
-                cell.font = RED_FONT
-            # pour la colonne Résumé (dernière), on transforme en lien
-            if df.columns[col_idx-1] == "Résumé":
-                cell.value = "Résumé"
-                cell.hyperlink = row[col_idx-1]
-                cell.font = LINK_FONT
+    # écriture données
+    for r in dataframe_to_rows(df, index=False, header=False):
+        ws.append(r)
 
-    # ajuster largeur et retour à la ligne
+    # style: auto width + wrap text + rouge pour target
     for col in ws.columns:
-        max_length = max(len(str(c.value or "")) for c in col)
-        ws.column_dimensions[col[0].column_letter].width = min(max_length*1.1, 50)
+        max_len = 0
+        for cell in col:
+            cell.alignment = Alignment(wrapText=True)
+            val = str(cell.value or '')
+            max_len = max(max_len, len(val))
+            # surlignage rouge si contient target
+            if re.search(rf"\b{app.config['TARGET']}\b", val):
+                cell.font = Font(color='FF0000')
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 50)
 
-    wb.save(stream)
+    bio = BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return bio
 
-if __name__ == "__main__":
-    app.run(debug=True)
+@app.route('/', methods=['GET', 'POST'])
+def analyze():
+    table_html = None
+    if request.method == 'POST':
+        file = request.files['file']
+        target = request.form['article']
+        app.config['TARGET'] = target
+
+        df = pd.read_excel(file)
+        filtered = process(df, target)
+        # conversion HTML
+        table_html = filtered.to_html(index=False, escape=False)
+        # sauvegarde pour téléchargement
+        app.config['EXCEL_BUF'] = to_excel(filtered)
+
+    return render_template_string(HTML_TEMPLATE, table_html=table_html)
+
+@app.route('/download')
+def download():
+    buf = app.config.get('EXCEL_BUF')
+    return send_file(buf, download_name='decisions_filtrees.xlsx', as_attachment=True)
+
+if __name__ == '__main__':
+    app.run()
+
 
 
 
