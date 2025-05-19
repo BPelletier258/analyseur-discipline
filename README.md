@@ -43,24 +43,23 @@ Ce projet propose une application web **Analyseur de Décisions Disciplinaires**
 ```
 analyseur-discipline/
 ├─ templates/
-│  └─ index.html       # Formulaire et rendu du tableau HTML
+│  ├─ index.html       # Page HTML du formulaire et rendu du tableau
+│  └─ résultats.html   # Template des résultats (tableaux HTML)
 ├─ main.py             # Application Flask principale
 ├─ requirements.txt    # Dépendances Python
 ├─ render.yaml         # Configuration Render pour le déploiement
-└─ README.md           # Cette documentation
+├─ README.md           # Documentation du projet
+└─ LICENSE             # Licence MIT
 ```
 
-**Colonnes obligatoires dans le fichier Excel** :
-
-| Nom interne                        | Description                            |
-| ---------------------------------- | -------------------------------------- |
-| `numero de decision`               | Numéro unique de la décision           |
-| `nom de l’intime`                  | Nom de la personne sanctionnée         |
-| `articles enfreints`               | Liste des articles enfreints           |
-| `duree totale effective radiation` | Durée de radiation                     |
-| `article amende/chef`              | Montants d’amende ou chefs de sanction |
-| `autres sanctions`                 | Autres mesures disciplinaires          |
-| **optionnel** `résumé`             | URL vers le résumé de la décision      |
+\---------------------------|----------------------------------------------|
+\| `numero de decision`      | Numéro unique de la décision                 |
+\| `nom de l’intime`         | Nom de la personne sanctionnée               |
+\| `articles enfreints`      | Liste des articles enfreints                 |
+\| `duree totale effective radiation` | Durée de radiation                    |
+\| `article amende/chef`     | Montants d’amende ou chefs de sanction       |
+\| `autres sanctions`        | Autres mesures disciplinaires                |
+\| **optionnel** `résumé`    | URL vers le résumé de la décision            |
 
 ---
 
@@ -111,6 +110,9 @@ analyseur-discipline/
 ## 🧑‍💻 Auteurs et crédits
 
 * Développé par **Assistant GPT** & **Utilisateur** (2025)
+
+<sub>Licence MIT – Voir le fichier LICENSE pour plus de détails.</sub>
+
 
 <sub>Licence MIT – Voir le fichier LICENSE pour plus de détails.</sub>
 
