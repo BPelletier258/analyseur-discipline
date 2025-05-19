@@ -76,7 +76,6 @@ disp_cols = {
     'articles enfreints',
     'durée totale effective radiation',
     'article amende/chef',
-    'total des amendes',
     'autres sanctions'
 }
 
@@ -89,16 +88,15 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
         df_raw = pd.read_excel(file)
-        # force filter only on 'articles enfreints' column
+        # filter only rows where Articles enfreints contains exact article preceded by Art.
         target_col = next((c for c in df_raw.columns if c.lower()=='articles enfreints'), None)
-        if target_col is None:
-            df = df_raw.copy()
+        if target_col:
+            filter_re = re.compile(html_pattern(article))
+            df = df_raw[df_raw[target_col].astype(str).apply(lambda s: bool(filter_re.search(s)))].copy()
         else:
-            pat = re.compile(rf'(?<![0-9]){re.escape(article)}(?![0-9])')
-            df = df_raw[df_raw[target_col].astype(str).apply(lambda s: bool(pat.search(s)))].copy()
+            df = df_raw.copy()
         # summary column
         summary_col = next((c for c in df.columns if c.lower()=='résumé'), None)
-        # prepare HTML df
         html_df = df.copy()
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(
@@ -107,11 +105,11 @@ def analyze():
             cols = [c for c in html_df.columns if c!=summary_col] + [summary_col]
             html_df = html_df[cols]
         # apply HTML highlighting
-        hpat = re.compile(html_pattern(article))
+        highlight_re = re.compile(html_pattern(article))
         for col in html_df.columns:
             if col.lower() in disp_cols:
                 html_df[col] = html_df[col].astype(str).apply(
-                    lambda s: hpat.sub(r'<span class="highlight">\g<0></span>', s)
+                    lambda s: highlight_re.sub(r'<span class="highlight">\g<0></span>', s)
                 )
         table_html = html_df.to_html(index=False, escape=False)
         # build Excel output (unchanged)
@@ -139,7 +137,7 @@ def analyze():
                     cell.font = link_font
                 else:
                     cell.value = row[col]
-                if col.lower() in disp_cols and re.search(rf'(?<![0-9]){re.escape(article)}(?![0-9])', str(row[col])):
+                if col.lower() in disp_cols and highlight_re.search(str(row[col])):
                     cell.font = red_font
         for i in range(1, len(df.columns)+1):
             ws.column_dimensions[get_column_letter(i)].width = 20
@@ -158,6 +156,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
