@@ -10,7 +10,7 @@ Ce projet propose une application web **Analyseur de Décisions Disciplinaires**
 ## ✅ Fonctionnalités principales
 
 * **Upload** d’un fichier Excel (.xlsx) contenant les colonnes obligatoires.
-* **Saisie** de l’article à filtrer (ex : `14`, `59(2)`, `2.01`).
+* **Saisie** de l’article à filtrer (ex : `14`, `59(2)`, `2.01 a)`).
 * **Filtrage strict** : l’article recherché est mis en évidence en rouge **uniquement** dans quatre colonnes ciblées.
 * **Affichage HTML** des résultats :
 
@@ -95,9 +95,9 @@ analyseur-discipline/
 1. Connecter le dépôt GitHub à [Render.com](https://render.com).
 2. Paramétrer :
 
-   * **Build Command** : laisser vide
-   * **Start Command** : `gunicorn main:app`
-3. Pousser vos modifications : Render déploie automatiquement.
+   * **buildCommand** : `pip install -r requirements.txt`
+   * **startCommand** : `gunicorn main:app --bind 0.0.0.0:$PORT`
+3. Pousser vos modifications ; Render déploie automatiquement.
 
 ---
 
@@ -117,6 +117,7 @@ analyseur-discipline/
 * Développé par **Assistant GPT** & **Utilisateur** (2025)
 
 <sub>Licence MIT – Voir le fichier LICENSE pour plus de détails.</sub>
+
 
 
 
