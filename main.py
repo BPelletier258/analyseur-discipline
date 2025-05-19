@@ -1,12 +1,15 @@
 import re
 import pandas as pd
-from flask import Flask, request, render_template_string, send_file
+from flask import Flask, request, render_template_string, send_file, redirect, url_for
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
+
+# stockage du dernier Excel généré
+last_excel = None
 
 HTML_TEMPLATE = '''
 <!doctype html>
@@ -53,73 +56,83 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# strict regex to match only exact article
+# pattern stricte
 
 def build_pattern(article):
     art = re.escape(article)
-    return rf"Art\.\s*{art}(?![0-9])"
+    return rf"\b{art}(?![0-9])"
 
-# Excel styles
+# styles Excel
 header_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 red_font = Font(color="FF0000")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 
 @app.route('/', methods=['GET','POST'])
 def analyze():
+    global last_excel
     table_html = None
+    searched_article = None
     if request.method == 'POST':
         file = request.files['file']
         article = request.form['article'].strip()
+        searched_article = article
         df = pd.read_excel(file)
-        # drop any summary URL columns
-        url_cols = [c for c in df.columns if 'Résumé' in c or 'résumé' in c]
+        # retirer colonnes Résumé
+        url_cols = [c for c in df.columns if 'Résumé' in c]
         df.drop(columns=url_cols, inplace=True, errors='ignore')
-        # build pattern and find highlights
+        # pattern et repérage
         pat = build_pattern(article)
         highlights = []
-        for r_idx, row in df.iterrows():
+        for idx, row in df.iterrows():
             for col in df.columns:
-                val = str(row[col])
-                if re.search(pat, val):
-                    highlights.append((r_idx, col))
-        # filter rows
-        mask = df.apply(lambda row: any(re.search(pat, str(v)) for v in row), axis=1)
-        df_filtered = df[mask]
-        # HTML table
-        table_html = df_filtered.to_html(index=False, border=1)
-        # generate Excel
+                if pat and re.search(pat, str(row[col])):
+                    highlights.append((idx, col))
+        # filtrer
+        mask = df.apply(lambda r: any(re.search(pat, str(v)) for v in r), axis=1)
+        df_filtered = df[mask].copy()
+        # HTML
+        table_html = df_filtered.to_html(index=False)
+        # Excel
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
-        # header
-        for c_idx, col in enumerate(df.columns, start=1):
-            cell = ws.cell(row=1, column=c_idx, value=col)
-            cell.fill = header_fill
-            cell.font = Font(bold=True)
-            cell.border = border
-        # data
-        for r, row in enumerate(dataframe_to_rows(df, index=False, header=False), start=2):
-            for c, val in enumerate(row, start=1):
-                cell = ws.cell(row=r, column=c, value=val)
+        # écriture de l'article en haut
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_filtered.columns))
+        top = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
+        top.font = Font(bold=True)
+        # header style
+        for i, col in enumerate(df_filtered.columns, start=1):
+            c = ws.cell(row=2, column=i, value=col)
+            c.fill = header_fill
+            c.font = Font(bold=True)
+            c.border = border
+        # données
+        for r, row in enumerate(dataframe_to_rows(df_filtered, index=False, header=False), start=3):
+            for c_idx, val in enumerate(row, start=1):
+                cell = ws.cell(row=r, column=c_idx, value=val)
                 cell.border = border
-        # apply highlights
+        # highlights
         for r_idx, col in highlights:
-            c_idx = df.columns.get_loc(col) + 1
-            cell = ws.cell(row=r_idx+2, column=c_idx)
-            cell.font = red_font
+            if mask.iloc[r_idx]:
+                col_idx = df_filtered.columns.get_loc(col) + 1
+                cell = ws.cell(row=list(df_filtered.index).index(r_idx)+3, column=col_idx)
+                cell.font = red_font
         wb.save(output)
         output.seek(0)
-        request.environ['excel_bytes'] = output.read()
-        return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article)
+        last_excel = output.getvalue()
+        return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=searched_article)
     return render_template_string(HTML_TEMPLATE)
 
 @app.route('/download')
 def download():
-    data = request.environ.get('excel_bytes')
-    return send_file(BytesIO(data), as_attachment=True, download_name='decisions_filtrees.xlsx')
+    global last_excel
+    if not last_excel:
+        return redirect(url_for('analyze'))
+    return send_file(BytesIO(last_excel), as_attachment=True, download_name='decisions_filtrees.xlsx')
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
