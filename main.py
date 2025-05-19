@@ -20,27 +20,27 @@ HTML_TEMPLATE = '''
 <hr>
 {% if table_html %}
   <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
-  <div style="overflow-x:auto; margin-top:10px; width:100%;">
+  <div style="overflow-x:auto; margin-top:10px;">
     {{ table_html | safe }}
   </div>
 {% endif %}
 '''  
 
 def process(df, target):
-    # identifier colonne résumé brute
+    # repérer colonne résumé existante
     summary_col = next((c for c in df.columns if 'résumé' in c.lower()), None)
-    # supprimer toutes colonnes raw contenant 'resume'
+    # supprimer colonnes contenant "resume" sauf la colonne de résumé
     drop_cols = [c for c in df.columns if re.search(r'resum', c, re.I) and c != summary_col]
     df.drop(columns=drop_cols, inplace=True)
 
-    # pattern exact Article n (éviter 149, 140, etc.)
-    pat = re.compile(rf"Article\s+{target}\b", re.I)
-
-    # filtrer lignes où l'article apparaît
+    # regex pour "Art" ou "Article" suivi du num distinct
+    pat = re.compile(rf"\bArt(?:icle)?\.?\s*{target}\b", re.I)
+    
+    # filtrer lignes où au moins une cellule matche
     mask = df.apply(lambda row: any(isinstance(v, str) and pat.search(v) for v in row), axis=1)
     filtered = df[mask].copy()
 
-    # colonne Résumé hyperlien
+    # ajouter colonne Résumé en dernière position
     if summary_col:
         filtered['Résumé'] = filtered[summary_col].fillna('').apply(
             lambda u: f'<a href="{u}">Résumé</a>' if u else '')
@@ -65,9 +65,9 @@ def to_excel(df):
     for r in dataframe_to_rows(df, index=False, header=False):
         ws.append(r)
 
-    # style colonnes: largeur fixe, retour à la ligne, rouge si article présent
+    # style colonnes
     target = app.config.get('TARGET', '')
-    pat_cell = re.compile(rf"Article\s+{target}\b", re.I)
+    pat_cell = re.compile(rf"\bArt(?:icle)?\.?\s*{target}\b", re.I)
     for col in ws.columns:
         max_len = 0
         for cell in col:
@@ -76,6 +76,7 @@ def to_excel(df):
             max_len = max(max_len, len(text))
             if pat_cell.search(text):
                 cell.font = Font(color='FF0000')
+        # largeur fixe
         ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
 
     buf = BytesIO()
@@ -107,6 +108,7 @@ def download():
 
 if __name__ == '__main__':
     app.run()
+
 
 
 
