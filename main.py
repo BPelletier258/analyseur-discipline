@@ -80,16 +80,27 @@ def to_excel(df, target):
     ws = wb.active
     ws.title = 'Décisions'
     headers = [c for c in df.columns if c!='_url']
-    ws.append(headers)
+    # insert title row for searched article
+    ws.append([f"Article filtré : {target}"] + ['']*(len(headers)-1))
     for cell in ws[1]:
         cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal='center')
+    # leave an empty row before headers
+    ws.append(['']*len(headers))
+    # header row
+    ws.append(headers)
+    for cell in ws[3]:
+        cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal='center', wrapText=True)
-    for r_idx, row in enumerate(dataframe_to_rows(df[headers], index=False, header=False), start=2):
+    # data rows
+    for r_idx, row in enumerate(dataframe_to_rows(df[headers], index=False, header=False), start=4):
         for c_idx, val in enumerate(row, start=1):
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.alignment = Alignment(wrapText=True)
-        url = df['_url'].iloc[r_idx-2]
-        hl_cell = ws.cell(row=r_idx, column=len(headers), value='Résumé')
+        # hyperlink in last column
+        url = df['_url'].iloc[r_idx-4]
+        hl_col = headers.index('Résumé') + 1 if 'Résumé' in headers else len(headers)
+        hl_cell = ws.cell(row=r_idx, column=hl_col, value='Résumé')
         if isinstance(url, str) and url.startswith('http'):
             hl_cell.hyperlink = url
             hl_cell.style = 'Hyperlink'
@@ -99,7 +110,7 @@ def to_excel(df, target):
         max_len = 0
         for cell in col:
             txt = str(cell.value or '')
-            if cell.row>1 and pat.search(txt):
+            if cell.row > 3 and pat.search(txt):
                 cell.font = Font(color='FF0000')
             max_len = max(max_len, len(txt))
         col_letter = col[0].column_letter
@@ -133,6 +144,7 @@ def download():
 
 if __name__=='__main__':
     app.run()
+
 
 
 
