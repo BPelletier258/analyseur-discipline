@@ -8,7 +8,6 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
 
-# HTML template with horizontal scrolling, styled form, display of searched article, and fixed header styles
 HTML_TEMPLATE = '''
 <!doctype html>
 <html lang="fr">
@@ -22,12 +21,11 @@ HTML_TEMPLATE = '''
     label { display: block; margin: 10px 0 5px; font-weight: bold; font-size: 1.1em; }
     input[type=text], input[type=file] { width: 100%; padding: 8px; font-size: 1.1em; }
     button { margin-top: 15px; padding: 10px 20px; font-size: 1.1em; }
+    .article-label { margin-top: 20px; font-size: 1.2em; font-weight: bold; }
     .table-container { overflow-x: auto; margin-top: 20px; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
     th, td { border: 1px solid #333; padding: 8px; vertical-align: top; word-wrap: break-word; }
     th { background: #e0e0e0; font-weight: bold; }
-    .summary-col, .summary-col th, .summary-col td { text-align: center; }
-    .article-label { margin-top: 20px; font-size: 1.2em; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -48,116 +46,99 @@ HTML_TEMPLATE = '''
   {% if table_html %}
     <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
     <div class="table-container">
+      <h2>Tableau complet</h2>
       {{ table_html|safe }}
     </div>
+    {% if filtered_html %}
+    <div class="table-container">
+      <h2>Détails pour l'article {{ searched_article }}</h2>
+      {{ filtered_html|safe }}
+    </div>
+    {% endif %}
   {% endif %}
 </body>
 </html>
 '''
 
-def process(df, target):
-    # identify URL columns for summary
-    url_col = next((c for c in df.columns if re.search(r'r[eé]sum', c, re.I)), None)
-    urls = df[url_col] if url_col else pd.Series(['']*len(df), index=df.index)
-    # drop raw URL/link columns
-    all_urls = [c for c in df.columns if df[c].astype(str).str.startswith('http').any()]
-    df = df.drop(columns=all_urls, errors='ignore')
+# regex builder to match exact article (avoid hundreds)
+def build_pattern(article):
+    # escape dots
+    art = re.escape(article)
+    # match Art. <article>([^0-9]|\b)
+    return rf"Art\.\s*{art}(?![0-9])"
 
-    # strict regex: avoid matching longer numbers; user should provide main article number (e.g. "2.01") to capture subparagraphs
-    pat = re.compile(rf"\bArt(?:icle)?[\.:]?\s*{re.escape(target)}(?![0-9])", re.I)
+# style for Excel
+header_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+red_font = Font(color="FF0000")
+border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 
-    mask = df.apply(lambda row: any(isinstance(v, str) and pat.search(v) for v in row), axis=1)
-    filtered = df[mask].copy()
-
-    filtered['_url'] = urls[filtered.index]
-    filtered['Résumé'] = filtered['_url'].apply(lambda v: f'<a class="summary-col" href="{v}" target="_blank">Résumé</a>' 
-                                               if isinstance(v, str) and v.startswith('http') else '')
-    return filtered
-
-
-def to_excel(df, target):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = 'Décisions'
-    headers = [c for c in df.columns if c!='_url']
-    thin = Side(border_style="thin", color="000000")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    
-    # title row for searched article
-    ws.append([f"Article filtré : {target}"] + ['']*(len(headers)-1))
-    title_fill = PatternFill('solid', fgColor='FFF2CC')
-    for cell in ws[1]:
-        cell.font = Font(bold=True, size=14)
-        cell.fill = title_fill
-        cell.alignment = Alignment(horizontal='center')
-        cell.border = border
-    # empty row
-    ws.append(['']*len(headers))
-    
-    # header row
-    ws.append(headers)
-    header_fill = PatternFill('solid', fgColor='EDEDED')
-    for cell in ws[3]:
-        cell.font = Font(bold=True, size=12)
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal='center', wrapText=True)
-        cell.border = border
-
-    # data rows
-    for r_idx, row in enumerate(dataframe_to_rows(df[headers], index=False, header=False), start=4):
-        for c_idx, val in enumerate(row, start=1):
-            cell = ws.cell(row=r_idx, column=c_idx, value=val)
-            cell.alignment = Alignment(wrapText=True)
-            cell.border = border
-        # hyperlink for Résumé
-        url = df['_url'].iloc[r_idx-4]
-        hl_col = headers.index('Résumé')+1
-        hl_cell = ws.cell(row=r_idx, column=hl_col, value='Résumé')
-        if isinstance(url, str) and url.startswith('http'):
-            hl_cell.hyperlink = url
-            hl_cell.style = 'Hyperlink'
-        hl_cell.border = border
-
-    # highlight article occurrences
-    pat = re.compile(rf"\bArt(?:icle)?[\.:]?\s*{re.escape(target)}(?![0-9])", re.I)
-    for col in ws.columns:
-        max_len = 0
-        for cell in col:
-            txt = str(cell.value or '')
-            if cell.row > 3 and pat.search(txt):
-                cell.font = Font(color='FF0000')
-            max_len = max(max_len, len(txt))
-        col_letter = col[0].column_letter
-        ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
-
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
-
-app.config['EXCEL_BUF'] = None
-
-@app.route('/', methods=['GET','POST'])
+@app.route('/', methods=['GET', 'POST'])
 def analyze():
-    table_html = None
-    searched = None
-    if request.method=='POST':
-        searched = request.form['article'].strip()
-        df = pd.read_excel(request.files['file'])
-        filtered = process(df, searched)
-        html_df = filtered.drop(columns=['_url'])
-        table_html = html_df.to_html(index=False, escape=False)
-        app.config['EXCEL_BUF'] = to_excel(filtered, searched)
-    return render_template_string(HTML_TEMPLATE,
-                                  table_html=table_html,
-                                  searched_article=searched)
+    table_html = filtered_html = None
+    if request.method == 'POST':
+        file = request.files['file']
+        article = request.form['article'].strip()
+        df = pd.read_excel(file)
+        # remove summary URL column if exists
+        url_cols = [c for c in df.columns if 'Résumé' in c or 'résumé' in c]
+        for c in url_cols:
+            df.drop(columns=c, inplace=True)
+        # build pattern
+        pat = build_pattern(article)
+        # highlight cells in Excel: record positions
+        highlights = []
+        for row_idx, row in df.iterrows():
+            for col in df.columns:
+                if isinstance(row[col], str) and re.search(pat, row[col]):
+                    highlights.append((row_idx, col))
+        # filtered df for HTML highlight
+        mask = df.apply(lambda r: any(re.search(pat, str(v)) for v in r), axis=1)
+        df_filtered = df[mask]
+        # full and filtered HTML
+        table_html = df.to_html(classes='', index=False, border=1)
+        filtered_html = df_filtered.to_html(classes='', index=False, border=1)
+        # generate Excel in memory
+        output = BytesIO()
+        wb = Workbook()
+        ws = wb.active
+        ws.title = f"Article_{article}"
+        # write header
+        for col_idx, col in enumerate(df.columns, 1):
+            cell = ws.cell(row=1, column=col_idx, value=col)
+            cell.fill = header_fill
+            cell.font = Font(bold=True)
+            cell.border = border
+        # write data
+        for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=False), start=2):
+            for c_idx, val in enumerate(row, 1):
+                cell = ws.cell(row=r_idx, column=c_idx, value=val)
+                cell.border = border
+        # apply highlights
+        for (r_idx, col) in highlights:
+            c_idx = list(df.columns).index(col) + 1
+            cell = ws.cell(row=r_idx+2, column=c_idx)
+            cell.font = red_font
+        wb.save(output)
+        output.seek(0)
+        # store in session
+        request.environ['excel_bytes'] = output.read()
+        # render
+        return render_template_string(HTML_TEMPLATE,
+                                      table_html=table_html,
+                                      filtered_html=filtered_html,
+                                      searched_article=article)
+    return render_template_string(HTML_TEMPLATE)
 
 @app.route('/download')
 def download():
-    return send_file(app.config['EXCEL_BUF'], download_name='decisions_filtrees.xlsx', as_attachment=True)
+    data = request.environ.get('excel_bytes')
+    return send_file(BytesIO(data),
+                     download_name="decisions_formatees.xlsx",
+                     as_attachment=True)
 
-if __name__=='__main__':
-    app.run()
+if __name__ == '__main__':
+    app.run(debug=True)
+
 
 
 
