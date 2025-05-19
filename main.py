@@ -119,13 +119,13 @@ def analyze():
             c.fill = grey_fill
             c.font = Font(size=12, bold=True)
             c.border = border
-            c.alignment = wrap_text=True, vertical='top'
+            c.alignment = wrap_alignment
         # data rows
         for r_idx, (_, row) in enumerate(df.iterrows(), start=3):
             for c_idx, col in enumerate(df.columns, start=1):
                 ce = ws.cell(row=r_idx, column=c_idx)
                 ce.border = border
-                ce.alignment = wrap_text=True, vertical='top'
+                ce.alignment = wrap_alignment
                 if summary_col and col==summary_col:
                     url = row[col]
                     ce.value = 'Résumé'
@@ -153,6 +153,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
