@@ -9,6 +9,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
 
+# HTML template with horizontal scroll enabled
 INDEX_HTML = '''
 <!doctype html>
 <html lang="fr">
@@ -18,22 +19,22 @@ INDEX_HTML = '''
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; }
     form { margin-bottom: 20px; }
-    .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-container { width: 100%; overflow-x: auto; }
     table.discipline {
       border-collapse: collapse;
-      width: 100%;
+      width: auto;
       min-width: 800px;
-      table-layout: auto;
     }
     th, td {
       border: 1px solid #ccc;
       padding: 6px;
       text-align: left;
+      vertical-align: top;
       white-space: normal;
       word-wrap: break-word;
     }
     th { background: #f0f0f0; }
-    a.download { display: inline-block; margin: 10px 0; }
+    a.download { display: block; margin: 10px 0; }
   </style>
 </head>
 <body>
@@ -55,11 +56,10 @@ INDEX_HTML = '''
 '''
 
 def make_regex(article):
-    art = str(article).strip()
-    # escape special chars
-    esc = re.escape(art)
-    # match exact article number (e.g., 14, 59.2, 59(2)) not followed by digit
-    return re.compile(rf"\bArt[\.:]?\s*{esc}(?![\d])", re.IGNORECASE)
+    # build regex to match exact article (e.g. 14, 59.2, 59(2)) without catching longer numbers
+    art = re.escape(str(article).strip())
+    # allow optional decimal or parentheses
+    return re.compile(rf"\bArt\.?\s*{art}(?:[\s\.]|\b|\))", re.IGNORECASE)
 
 @app.route('/', methods=['GET'])
 def index():
@@ -67,50 +67,54 @@ def index():
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
-    upload = request.files.get('file')
+    uploaded = request.files.get('file')
     article = request.form.get('article', '14')
     pattern = make_regex(article)
 
-    df = pd.read_excel(upload)
+    # read uploaded Excel
+    df = pd.read_excel(uploaded)
 
-    # gérer colonne résumé/hyperlien
+    # detect original summary column and re-create 'Résumé' with proper link
     summary_cols = [c for c in df.columns if 'résumé' in c.lower() or 'resume' in c.lower()]
     if summary_cols:
         src = summary_cols[0]
         df['Résumé'] = df[src].apply(lambda u: f'<a href="{u}" target="_blank">Résumé</a>' if pd.notna(u) else '')
-        df.drop(columns=summary_cols, inplace=True)
+        df.drop(columns=[src], inplace=True)
+    else:
+        df['Résumé'] = ''
 
-    # filtrer lignes contenant l'article
+    # filter rows containing the target article
     mask = df.applymap(lambda v: bool(pattern.search(str(v))))
     filtered = df.loc[mask.any(axis=1)].copy()
 
-    # réordonner Résumé en dernier
-    if 'Résumé' in filtered.columns:
-        cols = [c for c in filtered.columns if c != 'Résumé'] + ['Résumé']
-        filtered = filtered[cols]
+    # ensure Résumé is last column
+    cols = [c for c in filtered.columns if c != 'Résumé'] + ['Résumé']
+    filtered = filtered[cols]
 
-    # création du fichier Excel formaté
+    # build formatted Excel
     wb = Workbook()
     ws = wb.active
     for r, row in enumerate(dataframe_to_rows(filtered, index=False, header=True), start=1):
         ws.append(row)
         if r == 1:
-            for cell in ws[r]: cell.font = Font(bold=True)
-    red_font = Font(color='FFFF0000')
+            for cell in ws[r]:
+                cell.font = Font(bold=True)
+    red = Font(color='FFFF0000')
     for col in ws.columns:
         max_len = 0
         for cell in col:
             cell.alignment = Alignment(wrap_text=True)
             text = str(cell.value or '')
             if pattern.search(text):
-                cell.font = red_font
+                cell.font = red
             max_len = max(max_len, len(text))
         ws.column_dimensions[col[0].column_letter].width = min(max_len * 1.2, 50)
-    out = 'filtered_output.xlsx'
+
+    out = 'decisions_filtrees.xlsx'
     wb.save(out)
     app.config['LAST_FILE'] = out
 
-    # générer HTML avec scroll
+    # render HTML table with safe HTML
     html = filtered.to_html(index=False, classes='discipline', escape=False)
     return render_template_string(INDEX_HTML, table_html=html)
 
@@ -120,6 +124,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
