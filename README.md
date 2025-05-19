@@ -2,7 +2,7 @@
 
 Ce projet propose une application web **Analyseur de Décisions Disciplinaires** permettant à l’utilisateur de rechercher un **article spécifique** dans un fichier Excel de décisions disciplinaires et d’en extraire :
 
-* Un **tableau HTML** interactif
+* Un **tableau HTML** interactif (avec occurrences du motif en rouge et gras)
 * Un **fichier Excel** formaté et téléchargeable
 
 ---
@@ -11,7 +11,7 @@ Ce projet propose une application web **Analyseur de Décisions Disciplinaires**
 
 * **Upload** d’un fichier Excel (.xlsx) contenant les colonnes obligatoires.
 * **Saisie** de l’article à filtrer (ex : `14`, `59(2)`, `2.01 a)`).
-* **Filtrage strict** : l’article recherché est mis en évidence en rouge **uniquement** dans quatre colonnes ciblées.
+* **Filtrage strict** : l’article recherché est mis en évidence en rouge **et en gras** **uniquement** dans quatre colonnes ciblées.
 * **Affichage HTML** des résultats :
 
   * Statut (si présent)
@@ -106,7 +106,7 @@ analyseur-discipline/
 1. **Uploader** votre fichier Excel.
 2. **Saisir** l’article recherché.
 3. Cliquer sur **Analyser**.
-4. **Voir** le tableau HTML et **télécharger** le fichier Excel formaté.
+4. **Voir** le tableau HTML (occurrences en rouge et gras) et **télécharger** le fichier Excel formaté.
 
 **URL de production** : [https://analyseur-discipline.onrender.com](https://analyseur-discipline.onrender.com)
 
@@ -116,7 +116,8 @@ analyseur-discipline/
 
 * Développé par **Assistant GPT** & **Utilisateur** (2025)
 
-<sub>Licence MIT – Voir le fichier LICENSE pour plus de détails.</sub>
+Licence MIT – Voir le fichier LICENSE pour plus de détails.
+
 
 
 
