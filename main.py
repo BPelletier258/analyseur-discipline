@@ -3,7 +3,7 @@ import pandas as pd
 from flask import Flask, request, render_template_string, send_file
 from io import BytesIO
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment
+from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
 
 app = Flask(__name__)
@@ -80,30 +80,42 @@ def to_excel(df, target):
     ws = wb.active
     ws.title = 'Décisions'
     headers = [c for c in df.columns if c!='_url']
-    # insert title row for searched article
+    
+    # insert title row for searched article, larger bold font on light yellow background
     ws.append([f"Article filtré : {target}"] + ['']*(len(headers)-1))
+    title_fill = PatternFill('solid', fgColor='FFF2CC')
     for cell in ws[1]:
-        cell.font = Font(bold=True)
+        cell.font = Font(bold=True, size=14)
+        cell.fill = title_fill
         cell.alignment = Alignment(horizontal='center')
-    # leave an empty row before headers
+    
+    # leave an empty row
     ws.append(['']*len(headers))
-    # header row
+
+    # header row with gray background and bold slightly larger text
     ws.append(headers)
+    header_fill = PatternFill('solid', fgColor='EDEDED')
     for cell in ws[3]:
-        cell.font = Font(bold=True)
+        cell.font = Font(bold=True, size=12)
+        cell.fill = header_fill
         cell.alignment = Alignment(horizontal='center', wrapText=True)
+
     # data rows
     for r_idx, row in enumerate(dataframe_to_rows(df[headers], index=False, header=False), start=4):
         for c_idx, val in enumerate(row, start=1):
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.alignment = Alignment(wrapText=True)
-        # hyperlink in last column
+        # hyperlink in Résumé column
         url = df['_url'].iloc[r_idx-4]
-        hl_col = headers.index('Résumé') + 1 if 'Résumé' in headers else len(headers)
+        if 'Résumé' in headers:
+            hl_col = headers.index('Résumé') + 1
+        else:
+            hl_col = len(headers)
         hl_cell = ws.cell(row=r_idx, column=hl_col, value='Résumé')
         if isinstance(url, str) and url.startswith('http'):
             hl_cell.hyperlink = url
             hl_cell.style = 'Hyperlink'
+
     # highlight any cell containing the exact article
     pat = re.compile(rf"\bArt(?:icle)?[\.:]?\s*{re.escape(target)}(?![0-9])", re.I)
     for col in ws.columns:
@@ -144,6 +156,7 @@ def download():
 
 if __name__=='__main__':
     app.run()
+
 
 
 
