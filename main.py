@@ -11,9 +11,9 @@ app = Flask(__name__)
 
 # --- Helper: build strict regex for exact article ---
 def make_regex(article):
-    # ensure numeric part
-    num = int(article)
-    return re.compile(rf"\bArt\.?\s*{num}(?!\d)\b", re.IGNORECASE)
+    # escape user input and prevent matching longer numbers or suffixes
+    escaped = re.escape(article)
+    return re.compile(rf"\bArt\.?\s*{escaped}(?![\d])\b", re.IGNORECASE)
 
 # --- Highlight cells in workbook containing the pattern ---
 def highlight_article(ws, pattern):
@@ -40,43 +40,50 @@ def analyze():
     # compile pattern
     pattern = make_regex(article)
 
-    # read Excel
+    # read Excel into DataFrame
     df = pd.read_excel(excel_file, engine='openpyxl')
 
-    # filter rows containing article in any column
+    # filter rows containing article in any cell
     mask = df.applymap(lambda v: bool(pattern.search(str(v))) if pd.notna(v) else False)
     filtered = df[mask.any(axis=1)].copy()
 
-    # prepare hyperlink column if exists
+    # hyperlink Résumé column if present
     if 'Résumé' in filtered.columns:
         filtered['Résumé'] = filtered['Résumé'].apply(lambda url: f"=HYPERLINK(\"{url}\", \"Résumé\")")
 
-    # build Excel output
+    # create formatted Excel
     wb = Workbook()
     ws = wb.active
     ws.title = f"Article_{article}"
     for r in dataframe_to_rows(filtered, index=False, header=True):
         ws.append(r)
+    # wrap and auto-size
     for col in ws.columns:
-        ws.column_dimensions[col[0].column_letter].auto_size = True
+        letter = col[0].column_letter
+        ws.column_dimensions[letter].auto_size = True
     highlight_article(ws, pattern)
 
-    output_path = f"filtered_output_{article}.xlsx"
+    output_path = f"decisions_filtrees_{article}.xlsx"
     wb.save(output_path)
 
-    # generate tables
-    md = filtered.to_markdown(index=False)
+    # tables for HTML and Markdown
+    markdown_table = filtered.to_markdown(index=False)
     html_table = (
-        "<div class='table-container' style='overflow-x:auto;'>"
+        "<div style='overflow-x:auto;'>"
         + filtered.to_html(classes='table', index=False, escape=False)
         + "</div>"
     )
 
-    return render_template('results.html', markdown_table=md,
-                           html_table=html_table, excel_file=output_path)
+    return render_template(
+        'results.html',
+        markdown_table=markdown_table,
+        html_table=html_table,
+        excel_file=output_path
+    )
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+
 
 
 
