@@ -17,7 +17,7 @@ HTML_TEMPLATE = '''
   table { border-collapse: collapse; width: 100%; table-layout: fixed; }
   th, td { border: 1px solid #333; padding: 8px; vertical-align: top; word-wrap: break-word; }
   th { background: #f0f0f0; font-weight: bold; }
-  .summary-col { white-space: nowrap; }
+  .summary-col, .summary-col th, .summary-col td { text-align: center; }
 </style>
 <h1>Analyse Disciplinaire</h1>
 <form method="post" enctype="multipart/form-data">
@@ -35,23 +35,26 @@ HTML_TEMPLATE = '''
 '''
 
 def process(df, target):
-    # drop any URL columns
-    url_cols = [c for c in df.columns if df[c].astype(str).str.match(r'https?://').any()]
+    # find summary column (URL column for résumé)
+    summary_col = next((c for c in df.columns if re.search(r'r[eé]sum', c, re.I)), None)
+
+    # drop any URL columns except the summary one
+    url_cols = [c for c in df.columns if c != summary_col and df[c].astype(str).str.match(r'https?://').any()]
     df = df.drop(columns=url_cols, errors='ignore')
 
-    # strict regex for target article (not matching hundreds)
-    pat = re.compile(rf"\b(?:Art(?:icle)?\.?\s*){target}(?!\d)\b", re.I)
+    # escape target for regex
+    t = re.escape(target)
+    pat = re.compile(rf"\bArt(?:icle)?\.?\s*{t}(?![\d])", re.I)
 
-    # filter rows containing target anywhere
+    # filter rows containing target
     mask = df.apply(lambda row: any(isinstance(v, str) and pat.search(v) for v in row), axis=1)
     filtered = df[mask].copy()
 
     # build Résumé column with hyperlink
-    summary_col = next((c for c in df.columns if re.search(r'r[eé]sum', c, re.I)), None)
     def make_link(url):
-        return f'<a href="{url}" target="_blank">Résumé</a>' if isinstance(url, str) and url.startswith('http') else ''
+        return f'<a class="summary-col" href="{url}" target="_blank">Résumé</a>' if isinstance(url, str) and url.startswith('http') else ''
     if summary_col:
-        links = filtered.pop(summary_col).apply(make_link)
+        links = filtered[summary_col].apply(make_link)
     else:
         links = pd.Series([''] * len(filtered), index=filtered.index)
     filtered['Résumé'] = links
@@ -70,12 +73,13 @@ def to_excel(df, target):
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal='center', wrapText=True)
 
-    # write data
+    # write data rows
     for row in dataframe_to_rows(df, index=False, header=False):
         ws.append(row)
 
-    # style and auto-width
-    pat = re.compile(rf"\b(?:Art(?:icle)?\.?\s*){target}(?!\d)\b", re.I)
+    # style and auto-width, highlight any cell containing target
+    t = re.escape(target)
+    pat = re.compile(rf"\bArt(?:icle)?\.?\s*{t}(?![\d])", re.I)
     for col in ws.columns:
         max_len = 0
         for cell in col:
@@ -101,9 +105,9 @@ def analyze():
         target = request.form['article'].strip()
         df = pd.read_excel(uploaded)
         filtered = process(df, target)
-        # HTML
+        # HTML table with summary column last
         table_html = filtered.to_html(index=False, escape=False)
-        # Excel
+        # Excel buffer
         app.config['EXCEL_BUF'] = to_excel(filtered, target)
     return render_template_string(HTML_TEMPLATE, table_html=table_html)
 
@@ -114,6 +118,7 @@ def download():
 
 if __name__ == '__main__':
     app.run()
+
 
 
 
