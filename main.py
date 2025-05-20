@@ -26,7 +26,13 @@ HTML_TEMPLATE = '''
     .article-label { margin-top: 25px; font-size: 1.4em; font-weight: bold; }
     .table-container { overflow-x: auto; margin-top: 30px; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; }
+    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; width: 30ch; }
+    th:nth-child(8), td:nth-child(8),
+    th:nth-child(9), td:nth-child(9),
+    th:nth-child(10), td:nth-child(10),
+    th:nth-child(12), td:nth-child(12) {
+      width: 60ch;
+    }
     th { background: #ddd; font-weight: bold; font-size: 1.1em; }
     a.summary-link { color: #00e; text-decoration: underline; }
     span.highlight { color: red; font-weight: bold; }
@@ -71,7 +77,7 @@ link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# columns eligible for HTML highlighting (lowercased)
+# columns eligible for HTML and Excel highlighting (lowercased)
 disp_cols = {
     'articles enfreints',
     'durée totale effective radiation',
@@ -156,6 +162,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
