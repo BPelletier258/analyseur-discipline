@@ -26,7 +26,7 @@ HTML_TEMPLATE = '''
     .article-label { margin-top: 25px; font-size: 1.4em; font-weight: bold; }
     .table-container { overflow-x: auto; margin-top: 30px; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; width: 30ch; }
+        th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; width: 25ch; }
     th:nth-child(8), td:nth-child(8),
     th:nth-child(9), td:nth-child(9),
     th:nth-child(10), td:nth-child(10),
@@ -162,6 +162,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
