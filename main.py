@@ -140,7 +140,8 @@ def analyze():
                 cell.alignment = wrap_alignment
                 if summary_col and col == summary_col:
                     cell.value = 'Résumé'
-                    cell.hyperlink = row[col]
+                    url = row[col]
+                    cell.hyperlink = str(url)
                     cell.font = link_font
                 else:
                     cell.value = row[col]
@@ -164,6 +165,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
