@@ -27,6 +27,7 @@ HTML_TEMPLATE = '''
     .table-container { overflow-x: auto; margin-top: 30px; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
     th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; width: 25ch; text-align: center; }
+    /* agrandir colonnes détaillées */
     th:nth-child(8), td:nth-child(8),
     th:nth-child(9), td:nth-child(9),
     th:nth-child(10), td:nth-child(10),
@@ -63,29 +64,27 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# build regex for strict HTML highlighting: only match when preceded by "Art." or "Art:" and exact article
-# e.g. Art. 14 or Art: 14
-
+# compile regex to match only 'Art.' or 'Art:' prefix
 def html_pattern(article):
-    a = re.escape(article)
-    return rf"(Art\.?|Art:)\s*{a}(?![0-9A-Za-z])"
+    art = re.escape(article)
+    return rf"(?:(?:Art\.|Art:))\s*{art}(?![0-9A-Za-z])"
 
-# Excel styles
+# Excel styling
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 red_font = Font(color="FF0000")
 link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# columns eligible for HTML and Excel highlighting (lowercased)
-disp_cols = {
+# columns eligible for HTML highlighting
+HIGHLIGHT_COLS = {
     'articles enfreints',
     'durée totale effective radiation',
     'article amende/chef',
     'autres sanctions'
 }
 
-@app.route('/', methods=['GET','POST'])
+@app.route('/', methods=['GET', 'POST'])
 def analyze():
     global last_excel, last_article
     table_html = None
@@ -94,58 +93,61 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
         df_raw = pd.read_excel(file)
-        # filter only rows where Articles enfreints contains exact article preceded by Art.
-        target_col = next((c for c in df_raw.columns if c.lower()=='articles enfreints'), None)
+        # filter strictly on 'Articles enfreints' column with prefix
+        target_col = next((c for c in df_raw.columns if c.lower() == 'articles enfreints'), None)
         if target_col:
-            filter_re = re.compile(html_pattern(article))
-            df = df_raw[df_raw[target_col].astype(str).apply(lambda s: bool(filter_re.search(s)))].copy()
+            pat = re.compile(html_pattern(article))
+            df = df_raw[df_raw[target_col].astype(str).apply(lambda s: bool(pat.search(s)))].copy()
         else:
             df = df_raw.copy()
-        # summary column
-        summary_col = next((c for c in df.columns if c.lower()=='résumé'), None)
+        # prepare HTML DataFrame
+        summary_col = next((c for c in df.columns if c.lower() == 'résumé'), None)
         html_df = df.copy()
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(
                 lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else ''
             )
-            cols = [c for c in html_df.columns if c!=summary_col] + [summary_col]
+            cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
             html_df = html_df[cols]
-        # apply HTML highlighting
-        highlight_re = re.compile(html_pattern(article))
+        # highlight in HTML columns
+        pat_h = re.compile(html_pattern(article))
         for col in html_df.columns:
-            if col.lower() in disp_cols:
+            if col.lower() in HIGHLIGHT_COLS:
                 html_df[col] = html_df[col].astype(str).apply(
-                    lambda s: highlight_re.sub(r'<span class="highlight">\g<0></span>', s)
+                    lambda s: pat_h.sub(lambda m: f'<span class="highlight">{m.group(0)}</span>', s)
                 )
+        # render HTML table
         table_html = html_df.to_html(index=False, escape=False)
-        # build Excel output (unchanged)
+        # build Excel
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df.columns))
-        c = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
-        c.font = Font(size=14, bold=True)
+        header_cell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
+        header_cell.font = Font(size=14, bold=True)
+        # headers
         for idx, col in enumerate(df.columns, start=1):
-            h = ws.cell(row=2, column=idx, value=col)
-            h.fill = grey_fill
-            h.font = Font(size=12, bold=True)
-            h.border = border
-            h.alignment = wrap_alignment
-        for r, (_, row) in enumerate(df.iterrows(), start=3):
-            for cidx, col in enumerate(df.columns, start=1):
-                cell = ws.cell(row=r, column=cidx)
+            c = ws.cell(row=2, column=idx, value=col)
+            c.fill = grey_fill
+            c.font = Font(size=12, bold=True)
+            c.border = border
+            c.alignment = wrap_alignment
+        # rows
+        for r_idx, (_, row) in enumerate(df.iterrows(), start=3):
+            for c_idx, col in enumerate(df.columns, start=1):
+                cell = ws.cell(row=r_idx, column=c_idx)
                 cell.border = border
                 cell.alignment = wrap_alignment
-                if summary_col and col==summary_col:
-                    url = row[col]
+                if summary_col and col == summary_col:
                     cell.value = 'Résumé'
-                    cell.hyperlink = url
+                    cell.hyperlink = row[col]
                     cell.font = link_font
                 else:
                     cell.value = row[col]
-                if col.lower() in disp_cols and highlight_re.search(str(row[col])):
+                if col.lower() in HIGHLIGHT_COLS and pat_h.search(str(row[col])):
                     cell.font = red_font
-        for i in range(1, len(df.columns)+1):
+        # set uniform column widths
+        for i in range(1, len(df.columns) + 1):
             ws.column_dimensions[get_column_letter(i)].width = 20
         wb.save(output)
         output.seek(0)
@@ -155,13 +157,14 @@ def analyze():
 @app.route('/download')
 def download():
     global last_excel, last_article
-    if not last_excel or not last_article:
+    if not last_excel:
         return redirect(url_for('analyze'))
     fname = f"decisions_filtrees_{last_article}.xlsx"
     return send_file(BytesIO(last_excel), as_attachment=True, download_name=fname)
 
-if __name__=='__main__':
+if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
