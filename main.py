@@ -26,10 +26,10 @@ HTML_TEMPLATE = '''
     .article-label { margin-top: 25px; font-size: 1.3em; font-weight: bold; }
     .table-container { overflow-x: auto; margin-top: 30px; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; min-width: 25ch; }
+    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; white-space: normal; min-width: 25ch; }
     th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
     /* colonnes détaillées */
-    .detailed { min-width: 50ch; display: inline-block; }
+    .detailed { min-width: 50ch; }
     /* mise en évidence article */
     .highlight { color: red; font-weight: bold; }
     a.summary-link { color: #00e; text-decoration: underline; }
@@ -63,7 +63,7 @@ HTML_TEMPLATE = '''
 # pattern strict : ne matche que Art. x ou Art: x
 def build_pattern(article):
     num = re.escape(article.strip())
-    return rf"\bArt\.?[:]?\s*{num}(?![0-9])"
+    return rf"\bArt\.?[:]?!?\s*{num}(?![0-9])"
 
 # Excel styles
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
@@ -95,24 +95,19 @@ def analyze():
 
         # préparation HTML
         html_df = df_filtered.copy()
-        # colonnes résumé et commentaires internes
         summary_col = next((c for c in html_df.columns if c.lower()=='résumé'), None)
         comment_col = next((c for c in html_df.columns if c.lower()=='commentaires internes'), None)
-        # lien résumé
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
-        # forcer ordre: toutes les autres puis résumé puis commentaires
         cols = [c for c in html_df.columns if c not in (summary_col, comment_col)]
         if summary_col: cols.append(summary_col)
         if comment_col: cols.append(comment_col)
         html_df = html_df[cols]
 
-        # appliquer classes detailed et highlight
         for col in html_df.columns:
             is_detailed = col in HIGHLIGHT_COLS
             def decorate(val):
                 s = str(val)
-                # surligner occurrences
                 s = re.sub(pat, lambda m: f'<span class="highlight">{m.group(0)}</span>', s)
                 if is_detailed:
                     return f'<span class="detailed">{s}</span>'
@@ -121,19 +116,17 @@ def analyze():
 
         table_html = html_df.to_html(index=False, escape=False)
 
-        # création Excel (inchangé)
+        # Excel generation
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_filtered.columns))
         ws.cell(row=1, column=1, value=f"Article filtré : {article}").font = Font(size=14, bold=True)
-        # en-têtes
-        for i,c in enumerate(df_filtered.columns, start=1):
+        for i, c in enumerate(df_filtered.columns, start=1):
             cell = ws.cell(row=2, column=i, value=c)
             cell.fill, cell.font, cell.border, cell.alignment = grey_fill, Font(size=12,bold=True), border, wrap_alignment
-        # contenu
-        for r,row in enumerate(df_filtered.itertuples(index=False), start=3):
-            for i,val in enumerate(row, start=1):
+        for r, row in enumerate(df_filtered.itertuples(index=False), start=3):
+            for i, val in enumerate(row, start=1):
                 cell = ws.cell(row=r, column=i, value=val)
                 cell.border, cell.alignment = border, wrap_alignment
                 if df_filtered.columns[i-1] in HIGHLIGHT_COLS and re.search(pat, str(val)):
@@ -156,6 +149,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
