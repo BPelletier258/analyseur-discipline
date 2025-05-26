@@ -24,8 +24,8 @@ HTML_TEMPLATE = '''
     input[type=text], input[type=file] { width: 100%; padding: 10px; font-size: 1.2em; }
     button { margin-top: 20px; padding: 12px 24px; font-size: 1.2em; }
     .article-label { margin-top: 25px; font-size: 1.3em; font-weight: bold; }
-    .table-container { overflow-x: auto; margin-top: 30px; }
-    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+    .table-container { overflow-x: auto; overflow-y: hidden; margin-top: 30px; white-space: nowrap; }
+    table { border-collapse: collapse; display: inline-block; table-layout: fixed; }
     th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; white-space: normal; min-width: 25ch; }
     th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
     /* colonnes détaillées */
@@ -149,6 +149,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
