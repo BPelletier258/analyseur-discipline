@@ -1,4 +1,3 @@
-
 import re
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file, redirect, url_for
@@ -27,7 +26,9 @@ HTML_TEMPLATE = '''
     .article-label { margin-top: 25px; font-size: 1.3em; font-weight: bold; }
     .table-container { overflow-x: auto; margin-top: 30px; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; }
+    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; min-width: 25ch; }
+    /* colonnes détaillées */
+    th.detailed, td.detailed { min-width: 50ch; }
     th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
     a.summary-link { color: #00e; text-decoration: underline; }
   </style>
@@ -86,23 +87,29 @@ def analyze():
         last_article = article
 
         df_raw = pd.read_excel(file)
-        # On filtre UNIQUEMENT sur 'Articles enfreints'
+        # On filtre uniquement sur la colonne Articles enfreints
         pat = build_pattern(article)
         mask = df_raw['Articles enfreints'].astype(str).str.contains(pat, regex=True)
         df_filtered = df_raw[mask].copy()
 
-        # préparation HTML
+        # préparation du HTML
         html_df = df_filtered.copy()
         summary_col = next((c for c in html_df.columns if c.lower() == 'résumé'), None)
+        # gestion de la colonne Commentaires internes
+        # elle est affichée telle quelle si présente
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(
                 lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else ''
             )
             cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
             html_df = html_df[cols]
+        # appliquer classes detailed sur les colonnes
+        for col in ['Articles enfreints', 'Durée totale effective radiation', 'Article amende/chef', 'Autres sanctions']:
+            if col in html_df.columns:
+                html_df[col] = html_df[col].apply(lambda val: f'<span class="detailed">{val}</span>')
         table_html = html_df.to_html(index=False, escape=False)
 
-        # création Excel
+        # création du fichier Excel
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
@@ -132,11 +139,10 @@ def analyze():
                         cell.font = link_font
                 else:
                     cell.value = row[col]
-                # highlight
                 if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
                     cell.font = red_font
 
-        # ajuster largeur fixe
+        # largeur fixe
         for idx in range(1, len(df_filtered.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 20
 
@@ -156,6 +162,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
