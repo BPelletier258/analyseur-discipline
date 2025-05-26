@@ -27,9 +27,11 @@ HTML_TEMPLATE = '''
     .table-container { overflow-x: auto; margin-top: 30px; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
     th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; min-width: 25ch; }
-    /* colonnes détaillées */
-    th.detailed, td.detailed { min-width: 50ch; }
     th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
+    /* colonnes détaillées */
+    .detailed { min-width: 50ch; display: inline-block; }
+    /* mise en évidence article */
+    .highlight { color: red; font-weight: bold; }
     a.summary-link { color: #00e; text-decoration: underline; }
   </style>
 </head>
@@ -39,14 +41,14 @@ HTML_TEMPLATE = '''
     <form method="post" enctype="multipart/form-data">
       <label for="file">Fichier Excel</label>
       <input type="file" id="file" name="file" required>
-      <label for="article">Article à filtrer (numérique uniquement, ex : 2.01)</label>
+      <label for="article">Article à filtrer (ex : 2.01 ou 59(2))</label>
       <input type="text" id="article" name="article" value="14" required>
       <button type="submit">Analyser</button>
     </form>
   </div>
   <hr>
   {% if searched_article %}
-    <div class="article-label">Article recherché : <span style="color:red">{{ searched_article }}</span></div>
+    <div class="article-label">Article recherché : <span class="highlight">{{ searched_article }}</span></div>
   {% endif %}
   {% if table_html %}
     <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
@@ -58,24 +60,24 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# pattern qui exige 'Art.' ou 'Art:' avant le numero
+# pattern strict : ne matche que Art. x ou Art: x
 def build_pattern(article):
-    base = re.escape(article.strip())
-    return rf"\bArt\.?[:]??\s*{base}(?![0-9])"
+    num = re.escape(article.strip())
+    return rf"\bArt\.?[:]?\s*{num}(?![0-9])"
 
-# Styles Excel
+# Excel styles
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 red_font = Font(color="FF0000")
 link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# Colonnes à surligner
+# colonnes à surligner
 HIGHLIGHT_COLS = {
-    'articles enfreints',
-    'durée totale effective radiation',
-    'article amende/chef',
-    'autres sanctions'
+    'Articles enfreints',
+    'Durée totale effective radiation',
+    'Article amende/chef',
+    'Autres sanctions'
 }
 
 @app.route('/', methods=['GET','POST'])
@@ -86,82 +88,75 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
 
-        df_raw = pd.read_excel(file)
-        # On filtre uniquement sur la colonne Articles enfreints
+        df = pd.read_excel(file)
         pat = build_pattern(article)
-        mask = df_raw['Articles enfreints'].astype(str).str.contains(pat, regex=True)
-        df_filtered = df_raw[mask].copy()
+        # filtre sur Articles enfreints uniquement
+        df_filtered = df[df['Articles enfreints'].astype(str).str.contains(pat, regex=True, na=False)].copy()
 
-        # préparation du HTML
+        # préparation HTML
         html_df = df_filtered.copy()
-        summary_col = next((c for c in html_df.columns if c.lower() == 'résumé'), None)
-        # gestion de la colonne Commentaires internes
-        # elle est affichée telle quelle si présente
+        # colonnes résumé et commentaires internes
+        summary_col = next((c for c in html_df.columns if c.lower()=='résumé'), None)
+        comment_col = next((c for c in html_df.columns if c.lower()=='commentaires internes'), None)
+        # lien résumé
         if summary_col:
-            html_df[summary_col] = html_df[summary_col].apply(
-                lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else ''
-            )
-            cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
-            html_df = html_df[cols]
-        # appliquer classes detailed sur les colonnes
-        for col in ['Articles enfreints', 'Durée totale effective radiation', 'Article amende/chef', 'Autres sanctions']:
-            if col in html_df.columns:
-                html_df[col] = html_df[col].apply(lambda val: f'<span class="detailed">{val}</span>')
+            html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
+        # forcer ordre: toutes les autres puis résumé puis commentaires
+        cols = [c for c in html_df.columns if c not in (summary_col, comment_col)]
+        if summary_col: cols.append(summary_col)
+        if comment_col: cols.append(comment_col)
+        html_df = html_df[cols]
+
+        # appliquer classes detailed et highlight
+        for col in html_df.columns:
+            is_detailed = col in HIGHLIGHT_COLS
+            def decorate(val):
+                s = str(val)
+                # surligner occurrences
+                s = re.sub(pat, lambda m: f'<span class="highlight">{m.group(0)}</span>', s)
+                if is_detailed:
+                    return f'<span class="detailed">{s}</span>'
+                return s
+            html_df[col] = html_df[col].apply(decorate)
+
         table_html = html_df.to_html(index=False, escape=False)
 
-        # création du fichier Excel
+        # création Excel (inchangé)
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_filtered.columns))
-        tcell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
-        tcell.font = Font(size=14, bold=True)
-
+        ws.cell(row=1, column=1, value=f"Article filtré : {article}").font = Font(size=14, bold=True)
         # en-têtes
-        for idx, col in enumerate(df_filtered.columns, start=1):
-            c = ws.cell(row=2, column=idx, value=col)
-            c.fill = grey_fill
-            c.font = Font(size=12, bold=True)
-            c.border = border
-            c.alignment = wrap_alignment
-
-        # lignes
-        for r_idx, (_, row) in enumerate(df_filtered.iterrows(), start=3):
-            for c_idx, col in enumerate(df_filtered.columns, start=1):
-                cell = ws.cell(row=r_idx, column=c_idx)
-                cell.border = border
-                cell.alignment = wrap_alignment
-                if summary_col and col == summary_col:
-                    url = row[col]
-                    cell.value = 'Résumé'
-                    if pd.notna(url):
-                        cell.hyperlink = str(url)
-                        cell.font = link_font
-                else:
-                    cell.value = row[col]
-                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
+        for i,c in enumerate(df_filtered.columns, start=1):
+            cell = ws.cell(row=2, column=i, value=c)
+            cell.fill, cell.font, cell.border, cell.alignment = grey_fill, Font(size=12,bold=True), border, wrap_alignment
+        # contenu
+        for r,row in enumerate(df_filtered.itertuples(index=False), start=3):
+            for i,val in enumerate(row, start=1):
+                cell = ws.cell(row=r, column=i, value=val)
+                cell.border, cell.alignment = border, wrap_alignment
+                if df_filtered.columns[i-1] in HIGHLIGHT_COLS and re.search(pat, str(val)):
                     cell.font = red_font
-
-        # largeur fixe
-        for idx in range(1, len(df_filtered.columns)+1):
-            ws.column_dimensions[get_column_letter(idx)].width = 20
-
+        for i in range(1, len(df_filtered.columns)+1):
+            ws.column_dimensions[get_column_letter(i)].width = 20
         wb.save(output)
         output.seek(0)
         last_excel = output.getvalue()
+
         return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article)
     return render_template_string(HTML_TEMPLATE)
 
 @app.route('/download')
 def download():
     global last_excel, last_article
-    if not last_excel or not last_article:
+    if not last_excel:
         return redirect(url_for('analyze'))
-    fname = f"decisions_filtrees_{last_article}.xlsx"
-    return send_file(BytesIO(last_excel), as_attachment=True, download_name=fname)
+    return send_file(BytesIO(last_excel), as_attachment=True, download_name=f"decisions_filtrees_{last_article}.xlsx")
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
