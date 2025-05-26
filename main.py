@@ -26,10 +26,10 @@ HTML_TEMPLATE = '''
     .article-label { margin-top: 25px; font-size: 1.3em; font-weight: bold; }
     .table-container { overflow-x: auto; margin-top: 30px; }
     table { border-collapse: collapse; width: max-content; min-width: 100%; table-layout: fixed; }
-    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; }
+    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; white-space: pre-wrap; }
     th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
     /* colonnes détaillées */
-    .detailed { min-width: 50ch; }
+    .detailed { min-width: 50ch; display: inline-block; vertical-align: top; }
     /* mise en évidence article */
     .highlight { color: red; font-weight: bold; }
     a.summary-link { color: #00e; text-decoration: underline; }
@@ -95,13 +95,11 @@ def analyze():
 
         # HTML
         html_df = df_filtered.copy()
-        # préserver commentaires internes
         comment_col = next((c for c in html_df.columns if c.lower()=='commentaires internes'), None)
         summary_col = next((c for c in html_df.columns if c.lower()=='résumé'), None)
         html_df = html_df.fillna('')
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else '')
-        # colonnes d'affichage, résumé et commentaires à la fin
         cols = [c for c in html_df.columns if c not in (summary_col, comment_col)]
         if summary_col: cols.append(summary_col)
         if comment_col: cols.append(comment_col)
@@ -110,9 +108,7 @@ def analyze():
         # mise en forme HTML
         def decorate_cell(val, col):
             txt = str(val)
-            # highlight article
             txt = re.sub(pat, lambda m: f'<span class="highlight">{m.group(0)}</span>', txt)
-            # detailed width
             if col in HIGHLIGHT_COLS:
                 return f'<span class="detailed">{txt}</span>'
             return txt
@@ -157,6 +153,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
