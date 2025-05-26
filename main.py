@@ -1,6 +1,9 @@
 import re
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file, redirect, url_for
+froimport re
+import pandas as pd
+from flask import Flask, request, render_template_string, send_file, redirect, url_for
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
@@ -97,8 +100,10 @@ def analyze():
         html_df = df_filtered.copy()
         summary_col = next((c for c in html_df.columns if c.lower()=='résumé'), None)
         comment_col = next((c for c in html_df.columns if c.lower()=='commentaires internes'), None)
+        # remplacer NaN par chaîne vide
+        html_df = html_df.fillna('')
         if summary_col:
-            html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
+            html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else '')
         cols = [c for c in html_df.columns if c not in (summary_col, comment_col)]
         if summary_col: cols.append(summary_col)
         if comment_col: cols.append(comment_col)
@@ -149,6 +154,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
