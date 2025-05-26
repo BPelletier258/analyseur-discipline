@@ -1,9 +1,6 @@
 import re
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file, redirect, url_for
-froimport re
-import pandas as pd
-from flask import Flask, request, render_template_string, send_file, redirect, url_for
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
@@ -66,9 +63,9 @@ HTML_TEMPLATE = '''
 # pattern strict : ne matche que Art. x ou Art: x
 def build_pattern(article):
     num = re.escape(article.strip())
-    return rf"\bArt\.?[:]?!?\s*{num}(?![0-9])"
+    return rf"\bArt\.?[:]?\s*{num}(?![0-9])"
 
-# Excel styles
+# styles Excel
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 red_font = Font(color="FF0000")
 link_font = Font(color="0000FF", underline="single")
@@ -100,7 +97,6 @@ def analyze():
         html_df = df_filtered.copy()
         summary_col = next((c for c in html_df.columns if c.lower()=='résumé'), None)
         comment_col = next((c for c in html_df.columns if c.lower()=='commentaires internes'), None)
-        # remplacer NaN par chaîne vide
         html_df = html_df.fillna('')
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else '')
@@ -109,6 +105,7 @@ def analyze():
         if comment_col: cols.append(comment_col)
         html_df = html_df[cols]
 
+        # décorations HTML
         for col in html_df.columns:
             is_detailed = col in HIGHLIGHT_COLS
             def decorate(val):
@@ -121,7 +118,7 @@ def analyze():
 
         table_html = html_df.to_html(index=False, escape=False)
 
-        # Excel generation
+        # Excel génération
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
@@ -154,6 +151,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
