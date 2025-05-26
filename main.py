@@ -1,3 +1,4 @@
+python
 import re
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file, redirect, url_for
@@ -44,7 +45,7 @@ HTML_TEMPLATE = '''
   </div>
   <hr>
   {% if searched_article %}
-    <div class="article-label">Article recherché : {{ searched_article }}</div>
+    <div class="article-label">Article recherché : <span style="color:red">{{ searched_article }}</span></div>
   {% endif %}
   {% if table_html %}
     <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
@@ -54,23 +55,22 @@ HTML_TEMPLATE = '''
   {% endif %}
 </body>
 </html>
-''' 
+'''
 
-# pattern qui exige la présence de 'Art.' ou 'Art:' avant le nombre
+# pattern qui exige 'Art.' ou 'Art:' avant le numero
 def build_pattern(article):
-    # n'accepter que chiffres et points
-    base = article.strip()
-    # regex : Art[\.|:]?\s*base(?![0-9])
-    return rf"\bArt\.?:?\s*{re.escape(base)}(?![0-9])"
+    base = re.escape(article.strip())
+    return rf"\bArt\.?[:]??\s*{base}(?![0-9])"
 
-# Excel styles
+# Styles Excel
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 red_font = Font(color="FF0000")
 link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# colonnes éligibles pour la mise en surbrillance\ nHIGHLIGHT_COLS = {
+# Colonnes à surligner
+HIGHLIGHT_COLS = {
     'articles enfreints',
     'durée totale effective radiation',
     'article amende/chef',
@@ -84,8 +84,9 @@ def analyze():
         file = request.files['file']
         article = request.form['article'].strip()
         last_article = article
+
         df_raw = pd.read_excel(file)
-        # pattern strict dans 'articles enfreints' seulement
+        # On filtre UNIQUEMENT sur 'Articles enfreints'
         pat = build_pattern(article)
         mask = df_raw['Articles enfreints'].astype(str).str.contains(pat, regex=True)
         df_filtered = df_raw[mask].copy()
@@ -101,7 +102,7 @@ def analyze():
             html_df = html_df[cols]
         table_html = html_df.to_html(index=False, escape=False)
 
-        # création fichier Excel
+        # création Excel
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
@@ -117,7 +118,7 @@ def analyze():
             c.border = border
             c.alignment = wrap_alignment
 
-        # corps
+        # lignes
         for r_idx, (_, row) in enumerate(df_filtered.iterrows(), start=3):
             for c_idx, col in enumerate(df_filtered.columns, start=1):
                 cell = ws.cell(row=r_idx, column=c_idx)
@@ -126,16 +127,16 @@ def analyze():
                 if summary_col and col == summary_col:
                     url = row[col]
                     cell.value = 'Résumé'
-                    cell.hyperlink = url
-                    cell.font = link_font
+                    if pd.notna(url):
+                        cell.hyperlink = str(url)
+                        cell.font = link_font
                 else:
                     cell.value = row[col]
-
-                # highlight dans colonnes habilitées
+                # highlight
                 if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
                     cell.font = red_font
 
-        # ajustement largeurs
+        # ajuster largeur fixe
         for idx in range(1, len(df_filtered.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 20
 
@@ -155,6 +156,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
