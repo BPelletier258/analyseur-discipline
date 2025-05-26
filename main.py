@@ -25,11 +25,10 @@ HTML_TEMPLATE = '''
     button { margin-top: 20px; padding: 12px 24px; font-size: 1.2em; }
     .article-label { margin-top: 25px; font-size: 1.3em; font-weight: bold; }
     .table-container { overflow-x: auto; margin-top: 30px; }
-    table { border-collapse: collapse; width: max-content; min-width: 100%; table-layout: fixed; }
+    table { border-collapse: collapse; width: 100%; table-layout: auto; }
     th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; white-space: normal; }
     th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
     td { min-width: 25ch; }
-    /* detailed cols */
     td.detailed { min-width: 50ch; }
     .highlight { color: red; font-weight: bold; }
     a.summary-link { color: #00e; text-decoration: underline; }
@@ -130,6 +129,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
