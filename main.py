@@ -120,23 +120,22 @@ def analyze():
             c = ws.cell(row=2, column=i, value=col)
             c.fill=grey_fill; c.font=Font(size=12,bold=True); c.border=border; c.alignment=wrap
         for r,(_,row) in enumerate(filtered.iterrows(),start=3):
-            for i,col in enumerate(filtered.columns, start=1):
-                cell = ws.cell(row=r, column=i)
-                cell.alignment=wrap; cell.border=border
-                if summary_col and col==summary_col:
-                    cell.value='Résumé'; cell.hyperlink=str(row[col]); cell.font=link_font
-                else:
-                    cell.value=row[col]
-                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
-                    cell.font=red_font
+                    # Set column widths: only specific five columns get wide, others narrow
         wide, narrow = 50,25
-        for i,col in enumerate(filtered.columns, start=1):
-            low = col.lower()
-            if low in HIGHLIGHT_COLS or low=='résumé des faits':
-                ws.column_dimensions[get_column_letter(i)].width=wide
+        wide_cols = {
+            'résumé des faits',
+            'articles enfreints',
+            'durée totale effective radiation',
+            'article amende/chef',
+            'autres sanctions'
+        }
+        for idx, col in enumerate(filtered.columns, start=1):
+            if col.lower() in wide_cols:
+                ws.column_dimensions[get_column_letter(idx)].width = wide
             else:
-                ws.column_dimensions[get_column_letter(i)].width=narrow
-        wb.save(out); out.seek(0)
+                ws.column_dimensions[get_column_letter(idx)].width = narrow
+        wb.save(out)
+        out.seek(0)
         last_excel = out.getvalue()
         return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article, style_block=STYLE_BLOCK)
     return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
@@ -151,6 +150,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
