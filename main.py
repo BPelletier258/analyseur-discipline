@@ -72,6 +72,19 @@ DETAILED_COLS = {
     'autres sanctions'
 }
 
+# columns overall for HTML width
+ALL_COLS_WIDTH = {'default': 25, 'detailed': 50}
+ or Art: before article
+ART_PATTERN = r'(?:(?<=Art\. )|(?<=Art: ))({})(?![0-9])'
+
+# detail columns for HTML highlighting and width
+DETAILED_COLS = {
+    'articles enfreints',
+    'durée totale effective radiation',
+    'article amende/chef',
+    'autres sanctions'
+}
+
 @app.route('/', methods=['GET','POST'])
 def analyze():
     global last_excel, last_article
@@ -145,6 +158,8 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
+
 
 
 
