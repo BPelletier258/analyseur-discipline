@@ -19,13 +19,15 @@ th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; 
 .highlight { color: red; font-weight: bold; }
 .summary-link { color: #00e; text-decoration: underline; }
 /* default narrow columns */
-td, th { width: 25ch; }
-/* wide columns */
-th, td:nth-child(8), th:nth-child(8) { width: 50ch; }
-th, td:nth-child(9), th:nth-child(9) { width: 50ch; }
-th, td:nth-child(10), th:nth-child(10) { width: 50ch; }
-th, td:nth-child(11), th:nth-child(11) { width: 50ch; }
-th, td:nth-child(13), th:nth-child(13) { width: 50ch; }td:nth-child(n+8):nth-child(-n+12) { width: 50ch; }
+th, td { width: 25ch; }
+/* wide columns: Résumé des faits col8, Articles enfreints col9, Durée totale col10, Article amende/chef col11, Autres sanctions col13 */
+th:nth-child(8), td:nth-child(8),
+th:nth-child(9), td:nth-child(9),
+th:nth-child(10), td:nth-child(10),
+th:nth-child(11), td:nth-child(11),
+th:nth-child(13), td:nth-child(13) {
+  width: 50ch;
+}
 '''
 
 HTML_TEMPLATE = '''
@@ -36,36 +38,11 @@ HTML_TEMPLATE = '''
   <title>Analyse Disciplinaire</title>
   <style>
     {{ style_block|safe }}
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    h1 { font-size: 1.8em; margin-bottom: 0.5em; }
-    .form-container { background: #f9f9f9; padding: 20px; border-radius: 5px; max-width: 600px; }
-    label { display: block; margin: 15px 0 5px; font-weight: bold; font-size: 1.2em; }
-    input[type=text], input[type=file] { width: 100%; padding: 10px; font-size: 1.2em; }
-    button { margin-top: 20px; padding: 12px 24px; font-size: 1.2em; }
-    .article-label { margin-top: 25px; font-size: 1.3em; font-weight: bold; }
+    ...
   </style>
 </head>
 <body>
-  <h1>Analyse Disciplinaire</h1>
-  <div class="form-container">
-    <form method="post" enctype="multipart/form-data">
-      <label for="file">Fichier Excel</label>
-      <input type="file" id="file" name="file" required>
-      <label for="article">Article à filtrer (ex : 2.01 ou 59(2))</label>
-      <input type="text" id="article" name="article" value="14" required>
-      <button type="submit">Analyser</button>
-    </form>
-  </div>
-  <hr>
-  {% if searched_article %}
-    <div class="article-label">Article recherché : <span class="highlight">{{ searched_article }}</span></div>
-  {% endif %}
-  {% if table_html %}
-    <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
-    <div class="table-container">
-      {{ table_html|safe }}
-    </div>
-  {% endif %}
+  ...
 </body>
 </html>
 '''
@@ -129,12 +106,10 @@ def analyze():
                     cell.font = red_font
                 if summary_col and col==summary_col and row[col]:
                     cell.value='Résumé'; cell.hyperlink=row[col]; cell.font=link_font
-        # Set column widths
         wide_cols = {'résumé des faits','articles enfreints','durée totale effective radiation','article amende/chef','autres sanctions'}
         for i, col in enumerate(filtered.columns, start=1):
             ws.column_dimensions[get_column_letter(i)].width = 50 if col.lower() in wide_cols else 25
-        wb.save(out)
-        out.seek(0)
+        wb.save(out); out.seek(0)
         last_excel = out.getvalue()
         return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article, style_block=STYLE_BLOCK)
     return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
@@ -149,6 +124,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
