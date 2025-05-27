@@ -94,6 +94,20 @@ HIGHLIGHT_COLS = {
     'autres sanctions'
 }
 
+grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+red_font = Font(color="FF0000")
+link_font = Font(color="0000FF", underline="single")
+border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+wrap = Alignment(wrap_text=True, vertical='top')
+
+# highlight only in these lower-cased columns
+HIGHLIGHT_COLS = {
+    'articles enfreints',
+    'durée totale effective radiation',
+    'article amende/chef',
+    'autres sanctions'
+}
+
 @app.route('/', methods=['GET','POST'])
 def analyze():
     global last_excel, last_article
@@ -180,6 +194,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
