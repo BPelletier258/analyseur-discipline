@@ -20,7 +20,7 @@ th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; 
 .summary-link { color: #00e; text-decoration: underline; }
 /* default narrow columns */
 td, th { width: 25ch; }
-/* wide columns: Résumé des faits, Articles enfreints, Durée totale effective radiation, Article amende/chef, Autres sanctions */
+/* wide columns */
 th:nth-child(n+8):nth-child(-n+12) { width: 50ch; }
 td:nth-child(n+8):nth-child(-n+12) { width: 50ch; }
 '''
@@ -102,16 +102,15 @@ def analyze():
         pat = build_pattern(article)
         mask = df[col_inf].astype(str).apply(lambda v: bool(re.search(pat, v)))
         filtered = df[mask].copy()
-        html_df = filtered.copy().fillna('')
+        html_df = filtered.fillna('').astype(str)
+        # Highlight HTML
         for col in html_df.columns:
-            html_df[col] = html_df[col].astype(str).apply(
-                lambda v, c=col: re.sub(pat, r'<span class="highlight">\g<0></span>', v) if c.lower() in HIGHLIGHT_COLS else v
-            )
+            if col.lower() in HIGHLIGHT_COLS:
+                html_df[col] = html_df[col].apply(lambda v: re.sub(pat, r'<span class="highlight">\g<0></span>', v))
         if summary_col:
-            html_df[summary_col] = html_df[summary_col].apply(
-                lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else ''
-            )
+            html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else '')
         table_html = html_df.to_html(index=False, escape=False)
+        # Build Excel
         out = BytesIO()
         wb = Workbook(); ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(filtered.columns))
@@ -119,21 +118,18 @@ def analyze():
         for i, col in enumerate(filtered.columns, start=1):
             c = ws.cell(row=2, column=i, value=col)
             c.fill=grey_fill; c.font=Font(size=12,bold=True); c.border=border; c.alignment=wrap
-        for r,(_,row) in enumerate(filtered.iterrows(),start=3):
-                    # Set column widths: only specific five columns get wide, others narrow
-        wide, narrow = 50,25
-        wide_cols = {
-            'résumé des faits',
-            'articles enfreints',
-            'durée totale effective radiation',
-            'article amende/chef',
-            'autres sanctions'
-        }
-        for idx, col in enumerate(filtered.columns, start=1):
-            if col.lower() in wide_cols:
-                ws.column_dimensions[get_column_letter(idx)].width = wide
-            else:
-                ws.column_dimensions[get_column_letter(idx)].width = narrow
+        for r, (_, row) in enumerate(filtered.iterrows(), start=3):
+            for i, col in enumerate(filtered.columns, start=1):
+                cell = ws.cell(row=r, column=i, value=row[col])
+                cell.border = border; cell.alignment = wrap
+                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
+                    cell.font = red_font
+                if summary_col and col==summary_col and row[col]:
+                    cell.value='Résumé'; cell.hyperlink=row[col]; cell.font=link_font
+        # Set column widths
+        wide_cols = {'résumé des faits','articles enfreints','durée totale effective radiation','article amende/chef','autres sanctions'}
+        for i, col in enumerate(filtered.columns, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = 50 if col.lower() in wide_cols else 25
         wb.save(out)
         out.seek(0)
         last_excel = out.getvalue()
@@ -150,6 +146,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
