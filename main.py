@@ -60,11 +60,22 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# regex matches only when prefixed by 'Art. ' or 'Art: '
-ART_PATTERN = r'(?:(?<=Art\. )|(?<=Art: ))({})(?![0-9])'
+# build regex: only match when prefixed by Art. or Art:
+def build_pattern(article):
+    # escape and allow optional space inside parentheses
+    art = re.escape(article)
+    # lookbehind for Art. or Art:
+    return rf'(?<=Art\s*[\.:]\s*){art}(?![0-9])'
 
-# detail columns for HTML highlighting and width
-DETAILED_COLS = {
+# Excel styles
+grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+red_font = Font(color="FF0000")
+link_font = Font(color="0000FF", underline="single")
+border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+wrap = Alignment(wrap_text=True, vertical='top')
+
+# highlight only in these lower-cased columns
+HIGHLIGHT_COLS = {
     'articles enfreints',
     'durée totale effective radiation',
     'article amende/chef',
@@ -79,87 +90,86 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
         df = pd.read_excel(file)
+        # locate summary column
         summary_col = next((c for c in df.columns if c.lower() == 'résumé'), None)
-        comment_col = next((c for c in df.columns if 'commentaire' in c.lower()), None)
-
-        # compile pattern
-        num = re.escape(article)
-        pat = re.compile(ART_PATTERN.format(num))
-
-        # filter on 'Articles enfreints' only
-        afe = df['Articles enfreints'].astype(str)
-        mask = afe.apply(lambda x: bool(pat.search(x)))
+        pat = build_pattern(article)
+        mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         filtered = df[mask].copy()
-
-        # prepare HTML DataFrame
+        # prepare HTML
         html_df = filtered.copy()
         if summary_col:
-            html_df[summary_col] = html_df[summary_col].apply(
-                lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else ''
+            html_df[summary_col] = html_df[summary_col].fillna('').apply(
+                lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else ''
             )
-        if comment_col:
-            html_df[comment_col] = html_df[comment_col].fillna('')
-
-        cols = [c for c in html_df.columns if c not in {summary_col, comment_col}]
-        if comment_col: cols.append(comment_col)
-        if summary_col: cols.append(summary_col)
-        html_df = html_df[cols]
-
-        # highlight matches
-        def highlight_text(txt, col):
-            if col.lower() in DETAILED_COLS and pd.notna(txt):
-                return pat.sub(r'<span class="highlight">\1</span>', str(txt))
-            return str(txt) if pd.notna(txt) else ''
-
-        for c in html_df.columns:
-            html_df[c] = html_df[c].apply(lambda v: highlight_text(v, c))
-
-        # build style block for detailed columns
-        detailed_indices = [i+1 for i,c in enumerate(html_df.columns) if c.lower() in DETAILED_COLS]
-        style_block = ''
-        for idx in detailed_indices:
-            style_block += f'table th:nth-child({idx}), table td:nth-child({idx}) {{ min-width: 50ch; }}\n'
-
-        # generate HTML
-        html = html_df.to_html(index=False, escape=False)
-
-        # generate Excel
-        output = BytesIO()
+            # move summary last
+            cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
+            html_df = html_df[cols]
+        # highlight in HTML
+        def highlight_cell(val, col):
+            s = str(val)
+            if col.lower() in HIGHLIGHT_COLS:
+                return re.sub(pat, r'<span class="highlight">\g<0></span>', s)
+            return s
+        for col in html_df.columns:
+            html_df[col] = html_df[col].apply(lambda v, c=col: highlight_cell(v, c))
+        table_html = html_df.to_html(index=False, escape=False)
+        # build Excel
+        out = BytesIO()
         wb = Workbook()
         ws = wb.active
+        # header row merged
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(filtered.columns))
-        cell = ws.cell(1,1,f"Article filtré : {article}")
-        cell.font = Font(size=14, bold=True)
-        grey = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-        thin = Border(*(Side(style='thin') for _ in range(4)))
-        for j,col in enumerate(filtered.columns, start=1):
-            c = ws.cell(2,j,col)
-            c.fill = grey; c.font = Font(bold=True); c.border = thin; c.alignment = Alignment(wrap_text=True, vertical='top')
-        for i,(_, row) in enumerate(filtered.iterrows(), start=3):
-            for j,col in enumerate(filtered.columns, start=1):
-                c = ws.cell(i,j, row[col])
-                c.border = thin; c.alignment = Alignment(wrap_text=True, vertical='top')
-        for j in range(1,len(filtered.columns)+1):
-            ws.column_dimensions[get_column_letter(j)].width = 20
-        wb.save(output); output.seek(0)
-        last_excel = output.getvalue()
-
-        return render_template_string(HTML_TEMPLATE,
-                                      table_html=html,
-                                      searched_article=article,
-                                      style_block=style_block)
-    return render_template_string(HTML_TEMPLATE, style_block='', table_html=None, searched_article='')
+        c0 = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
+        c0.font = Font(size=14, bold=True)
+        # column headers row
+        for i, col in enumerate(filtered.columns, start=1):
+            c = ws.cell(row=2, column=i, value=col)
+            c.fill = grey_fill
+            c.font = Font(size=12, bold=True)
+            c.border = border
+            c.alignment = wrap
+        # data rows
+        for r, (_, row) in enumerate(filtered.iterrows(), start=3):
+            for i, col in enumerate(filtered.columns, start=1):
+                cell = ws.cell(row=r, column=i)
+                cell.border = border
+                cell.alignment = wrap
+                if summary_col and col == summary_col:
+                    url = row[col]
+                    cell.value = 'Résumé'
+                    cell.hyperlink = url
+                    cell.font = link_font
+                else:
+                    cell.value = row[col]
+                # highlight in excel
+                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
+                    cell.font = red_font
+        # set column widths
+        wide = 50
+        narrow = 25
+        for i, col in enumerate(filtered.columns, start=1):
+            if col.lower() in HIGHLIGHT_COLS or col.lower() == 'résumé des faits':
+                ws.column_dimensions[get_column_letter(i)].width = wide
+            else:
+                ws.column_dimensions[get_column_letter(i)].width = narrow
+        wb.save(out)
+        out.seek(0)
+        last_excel = out.getvalue()
+        style_block = ''  # kept for future
+        return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article, style_block=style_block)
+    return render_template_string(HTML_TEMPLATE, style_block='')
 
 @app.route('/download')
 def download():
     global last_excel, last_article
-    if not last_article:
+    if not last_excel or not last_article:
         return redirect(url_for('analyze'))
-    return send_file(BytesIO(last_excel), as_attachment=True,
-                     download_name=f"decisions_filtrees_{last_article}.xlsx")
+    fname = f"decisions_filtrees_{last_article}.xlsx"
+    return send_file(BytesIO(last_excel), as_attachment=True, download_name=fname)
 
-if __name__=='__main__':
+if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
