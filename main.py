@@ -60,9 +60,16 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# strict pattern: match only Art. or Art: followed by article
-ART_PATTERN = r'(?:(?<=Art\.\s)|(?<=Art:\s))({})(?![0-9.])'
-DETAILED_COLS = { 'articles enfreints', 'durée totale effective radiation', 'article amende/chef', 'autres sanctions' }
+# match only if prefixed by 'Art. ' or 'Art:'
+ART_PATTERN = r'(?:(?<=Art\. )|(?<=Art: ))({})(?![0-9])'
+
+# columns to highlight in HTML
+DETAILED_COLS = {
+    'articles enfreints',
+    'durée totale effective radiation',
+    'article amende/chef',
+    'autres sanctions'
+}
 
 @app.route('/', methods=['GET','POST'])
 def analyze():
@@ -72,26 +79,49 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
         df = pd.read_excel(file)
+        # identify summary and internal comments columns
         summary_col = next((c for c in df.columns if c.lower()=='résumé'), None)
+        comment_col = next((c for c in df.columns if 'commentaire' in c.lower()), None)
+
+        # regex to find exact article with prefix
         num = re.escape(article)
         pat = re.compile(ART_PATTERN.format(num))
+
+        # filter rows based on Articles enfreints column only
         mask = df['Articles enfreints'].astype(str).apply(lambda x: bool(pat.search(x)))
         filtered = df[mask].copy()
+
+        # prepare HTML table
         html_df = filtered.copy()
+        # render summary as link
         if summary_col:
-            html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
-            cols = [c for c in html_df.columns if c!=summary_col] + [summary_col]
-            html_df = html_df[cols]
-        def highlight(val, col):
-            if pd.isna(val): return ''
-            text = str(val)
-            if col.lower() in DETAILED_COLS and pat.search(text):
-                return f'<span class="highlight">{text}</span>'
-            return text
-        styled = html_df.copy()
-        for col in styled.columns:
-            styled[col] = styled[col].apply(lambda v: highlight(v, col))
-        table_html = styled.to_html(index=False, escape=False, classes='', table_id='', border=1)
+            html_df[summary_col] = html_df[summary_col].apply(
+                lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else ''
+            )
+        # blank internal comments
+        if comment_col:
+            html_df[comment_col] = html_df[comment_col].fillna('')
+
+        # reorder summary/comment at end
+        cols = [c for c in html_df.columns if c not in {summary_col, comment_col}] + [comment_col or '', summary_col or '']
+        html_df = html_df[cols]
+
+        # highlight only matching text in the 4 detail columns
+        def apply_highlight(text, col):
+            if col.lower() in DETAILED_COLS and pd.notna(text):
+                return pat.sub(r'<span class="highlight">Art. \1</span>', str(text))
+            return str(text) if pd.notna(text) else ''
+
+        for col in html_df.columns:
+            html_df[col] = html_df[col].apply(lambda v: apply_highlight(v, col))
+
+        # add class to detail columns for width
+        html = html_df.to_html(index=False, escape=False)
+        # inject td class
+        for col in DETAILED_COLS:
+            html = html.replace(f'<td>', f'<td class="detailed">',  filtered.shape[0])
+
+        table_html = html
         return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article)
     return render_template_string(HTML_TEMPLATE)
 
@@ -104,6 +134,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
