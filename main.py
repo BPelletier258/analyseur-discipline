@@ -1,4 +1,3 @@
-
 import re
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file, redirect, url_for
@@ -28,10 +27,10 @@ HTML_TEMPLATE = '''
     .article-label { margin-top: 25px; font-size: 1.3em; font-weight: bold; }
     .table-container { overflow-x: auto; margin-top: 30px; }
     table { border-collapse: collapse; width: 100%; table-layout: auto; }
-    table td, table th { min-width: 25ch; }
-    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; white-space: normal; }
+    /* default column width */
+    table th, table td { min-width: 25ch; white-space: normal; word-wrap: break-word; }
+    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; }
     th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
-    td.detailed { min-width: 50ch; }
     .highlight { color: red; font-weight: bold; }
     a.summary-link { color: #00e; text-decoration: underline; }
   </style>
@@ -80,7 +79,6 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
         df = pd.read_excel(file)
-        # identify columns
         summary_col = next((c for c in df.columns if c.lower() == 'résumé'), None)
         comment_col = next((c for c in df.columns if 'commentaire' in c.lower()), None)
 
@@ -120,13 +118,10 @@ def analyze():
         detailed_indices = [i+1 for i,c in enumerate(html_df.columns) if c.lower() in DETAILED_COLS]
         style_block = ''
         for idx in detailed_indices:
-            style_block += f'table td:nth-child({idx}), table th:nth-child({idx}) {{ min-width: 50ch; }}\n'
+            style_block += f'table th:nth-child({idx}), table td:nth-child({idx}) {{ min-width: 50ch; }}\n'
 
         # generate HTML
         html = html_df.to_html(index=False, escape=False)
-        # add 'detailed' class to td in detailed columns
-        for idx in detailed_indices:
-            html = html.replace(f'<td>', '<td class="detailed">', filtered.shape[0])
 
         # generate Excel
         output = BytesIO()
@@ -135,13 +130,11 @@ def analyze():
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(filtered.columns))
         cell = ws.cell(1,1,f"Article filtré : {article}")
         cell.font = Font(size=14, bold=True)
-        # headers
         grey = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
         thin = Border(*(Side(style='thin') for _ in range(4)))
         for j,col in enumerate(filtered.columns, start=1):
             c = ws.cell(2,j,col)
             c.fill = grey; c.font = Font(bold=True); c.border = thin; c.alignment = Alignment(wrap_text=True, vertical='top')
-        # data rows
         for i,(_, row) in enumerate(filtered.iterrows(), start=3):
             for j,col in enumerate(filtered.columns, start=1):
                 c = ws.cell(i,j, row[col])
@@ -167,6 +160,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
