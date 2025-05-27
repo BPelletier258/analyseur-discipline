@@ -60,12 +60,24 @@ HTML_TEMPLATE = '''
 '''
 
 # build regex: only match when prefixed by fixed 'Art. ' or 'Art: '
+import re
+
 def build_pattern(article):
+    """
+    Construit un pattern qui ne matche que
+    `Art. X…`, `Art : X…` ou `Art: X…` où X est l'article recherché.
+    """
     art = re.escape(article)
-    # two fixed lookbehinds
-    prefix1 = r'Art\. '
-    prefix2 = r'Art: '
-    return rf'(?:' + prefix1 + r'|' + prefix2 + r')' + art + r'(?![0-9])'
+    # on autorise un espace optionnel autour de ':' ou après le '.'
+    prefixes = [
+        r'Art\.\s*',   # “Art.” suivi d’éventuels espaces
+        r'Art\s*:\s*', # “Art” puis “:” entouré d’éventuels espaces
+    ]
+    # on s’assure qu’après la valeur recherchée, il n’y a pas de chiffre
+    suffix = rf'(?![0-9])'
+    # assemble les deux alternatives de préfixes
+    return rf'(?:{"|".join(prefixes)}){art}{suffix}'
+
 
 # Excel styles
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
@@ -168,6 +180,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
