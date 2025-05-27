@@ -13,16 +13,16 @@ last_article = None
 # Inline CSS for HTML layout, widths, scroll bar, and enhanced form styling
 STYLE_BLOCK = '''
 body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background: #f5f7fa; }
-h1 { font-size: 2.2em; margin-bottom: 0.5em; color: #333; }
-form { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-end; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 800px; }
-label { font-weight: bold; font-size: 1.4em; color: #444; display: flex; flex-direction: column; }
-input[type=file], input[type=text] { padding: 0.8em; font-size: 1.4em; border: 1px solid #ccc; border-radius: 4px; }
-button { padding: 0.8em 1.6em; font-size: 1.4em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
+h1 { font-size: 1.65em; margin-bottom: 0.5em; color: #333; }
+form { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 750px; }
+label { font-weight: bold; font-size: 1.05em; color: #444; display: flex; flex-direction: column; }
+input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 1px solid #ccc; border-radius: 4px; }
+button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
 button:hover { background: #0056b3; }
 .table-container { overflow-x: auto; margin-top: 30px; }
 table { border-collapse: collapse; width: max-content; background: #fff; }
-th, td { border: 1px solid #888; padding: 10px; vertical-align: top; }
-th { background: #e2e3e5; font-weight: bold; font-size: 1.1em; text-align: center; }
+th, td { border: 1px solid #888; padding: 8px; vertical-align: top; }
+th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center; }
 .highlight { color: #d41e26; font-weight: bold; }
 .summary-link { color: #0066cc; text-decoration: underline; }
 
@@ -33,10 +33,10 @@ th:nth-child(8), td:nth-child(8),
 th:nth-child(9), td:nth-child(9),
 th:nth-child(10), td:nth-child(10),
 th:nth-child(11), td:nth-child(11),
-th:nth-child(13), td:nth-child(13) {
+th-child(13), td:nth-child(13) {
   width: 50ch;
 }
-'''
+'''  
 HTML_TEMPLATE = '''<!doctype html>
 <html lang="fr">
 <head>
@@ -161,6 +161,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
