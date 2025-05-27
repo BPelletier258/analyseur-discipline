@@ -10,6 +10,21 @@ app = Flask(__name__)
 last_excel = None
 last_article = None
 
+# Inline CSS for HTML layout, widths, and scroll
+STYLE_BLOCK = '''
+.table-container { overflow-x: auto; margin-top: 30px; }
+table { border-collapse: collapse; width: max-content; }
+th, td { border: 1px solid #444; padding: 10px; vertical-align: top; }
+th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
+.highlight { color: red; font-weight: bold; }
+.summary-link { color: #00e; text-decoration: underline; }
+/* default narrow columns */
+td, th { width: 25ch; }
+/* wide columns: Résumé des faits, Articles enfreints, Durée totale effective radiation, Article amende/chef, Autres sanctions */
+th:nth-child(n+8):nth-child(-n+12), th:nth-child(7) { width: 50ch; }
+td:nth-child(n+8):nth-child(-n+12), td:nth-child(7) { width: 50ch; }
+'''
+
 HTML_TEMPLATE = '''
 <!doctype html>
 <html lang="fr">
@@ -25,13 +40,6 @@ HTML_TEMPLATE = '''
     input[type=text], input[type=file] { width: 100%; padding: 10px; font-size: 1.2em; }
     button { margin-top: 20px; padding: 12px 24px; font-size: 1.2em; }
     .article-label { margin-top: 25px; font-size: 1.3em; font-weight: bold; }
-    .table-container { overflow-x: auto; margin-top: 30px; }
-    table { border-collapse: collapse; width: 100%; table-layout: auto; }
-    table th, table td { white-space: normal; word-wrap: break-word; }
-    th, td { border: 1px solid #444; padding: 10px; vertical-align: top; }
-    th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
-    .highlight { color: red; font-weight: bold; }
-    a.summary-link { color: #00e; text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -59,25 +67,12 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# build regex: only match when prefixed by fixed 'Art. ' or 'Art: '
-import re
-
+# Build regex matching only in Articles enfreints prefixed by Art. or Art:
 def build_pattern(article):
-    """
-    Construit un pattern qui ne matche que
-    `Art. X…`, `Art : X…` ou `Art: X…` où X est l'article recherché.
-    """
     art = re.escape(article)
-    # on autorise un espace optionnel autour de ':' ou après le '.'
-    prefixes = [
-        r'Art\.\s*',   # “Art.” suivi d’éventuels espaces
-        r'Art\s*:\s*', # “Art” puis “:” entouré d’éventuels espaces
-    ]
-    # on s’assure qu’après la valeur recherchée, il n’y a pas de chiffre
-    suffix = rf'(?![0-9])'
-    # assemble les deux alternatives de préfixes
+    prefixes = [r'Art\.\s*', r'Art\s*:\s*']
+    suffix = r'(?![0-9])'
     return rf'(?:{"|".join(prefixes)}){art}{suffix}'
-
 
 # Excel styles
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
@@ -86,21 +81,7 @@ link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap = Alignment(wrap_text=True, vertical='top')
 
-# highlight only in these lower-cased columns
-HIGHLIGHT_COLS = {
-    'articles enfreints',
-    'durée totale effective radiation',
-    'article amende/chef',
-    'autres sanctions'
-}
-
-grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-red_font = Font(color="FF0000")
-link_font = Font(color="0000FF", underline="single")
-border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-wrap = Alignment(wrap_text=True, vertical='top')
-
-# highlight only in these lower-cased columns
+# Columns eligible for highlighting
 HIGHLIGHT_COLS = {
     'articles enfreints',
     'durée totale effective radiation',
@@ -116,73 +97,58 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
         df = pd.read_excel(file)
-        # detect 'Articles enfreints' exactly column
-        col_inf = next((c for c in df.columns if c.lower() == 'articles enfreints'), None)
-        summary_col = next((c for c in df.columns if c.lower() == 'résumé'), None)
+        # identify columns
+        col_inf = next((c for c in df.columns if c.lower()=='articles enfreints'), None)
+        summary_col = next((c for c in df.columns if c.lower()=='résumé'), None)
+        # filter
         pat = build_pattern(article)
-        # filter only on Articles enfreints column
         mask = df[col_inf].astype(str).apply(lambda v: bool(re.search(pat, v)))
         filtered = df[mask].copy()
-        html_df = filtered.copy()
-        # move summary last
+        # prepare HTML table
+        html_df = filtered.copy().fillna('')
+        # highlight
+        for col in html_df.columns:
+            html_df[col] = html_df[col].astype(str).apply(
+                lambda v, c=col: re.sub(pat, r'<span class="highlight">\g<0></span>', v) if c.lower() in HIGHLIGHT_COLS else v
+            )
+        # summary links
         if summary_col:
-            html_df[summary_col] = html_df[summary_col].fillna('').apply(
+            html_df[summary_col] = html_df[summary_col].apply(
                 lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else ''
             )
-            cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
-            html_df = html_df[cols]
-        # highlight article in four columns
-        def highlight_cell(val, col):
-            s = str(val)
-            if col.lower() in HIGHLIGHT_COLS:
-                return re.sub(pat, r'<span class="highlight">\g<0></span>', s)
-            return s
-        for col in html_df.columns:
-            html_df[col] = html_df[col].apply(lambda v, c=col: highlight_cell(v, c))
         table_html = html_df.to_html(index=False, escape=False)
-        # Excel output
+        # build Excel
         out = BytesIO()
-        wb = Workbook()
-        ws = wb.active
+        wb = Workbook(); ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(filtered.columns))
-        c0 = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
-        c0.font = Font(size=14, bold=True)
+        c0 = ws.cell(row=1, column=1, value=f"Article filtré : {article}"); c0.font = Font(size=14, bold=True)
         # headers
         for i, col in enumerate(filtered.columns, start=1):
             c = ws.cell(row=2, column=i, value=col)
-            c.fill = grey_fill
-            c.font = Font(size=12, bold=True)
-            c.border = border
-            c.alignment = wrap
-        # data rows
-        for r, (_, row) in enumerate(filtered.iterrows(), start=3):
-            for i, col in enumerate(filtered.columns, start=1):
+            c.fill=grey_fill; c.font=Font(size=12,bold=True); c.border=border; c.alignment=wrap
+        # data
+        for r,(_,row) in enumerate(filtered.iterrows(),start=3):
+            for i,col in enumerate(filtered.columns, start=1):
                 cell = ws.cell(row=r, column=i)
-                cell.border = border
-                cell.alignment = wrap
-                if summary_col and col == summary_col:
-                    url = row[col]
-                    cell.value = 'Résumé'
-                    cell.hyperlink = str(url)
-                    cell.font = link_font
+                cell.alignment=wrap; cell.border=border
+                if summary_col and col==summary_col:
+                    cell.value='Résumé'; cell.hyperlink=str(row[col]); cell.font=link_font
                 else:
-                    cell.value = row[col]
+                    cell.value=row[col]
                 if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
-                    cell.font = red_font
-        # set column widths
-        wide = 50
-        narrow = 25
-        for i, col in enumerate(filtered.columns, start=1):
+                    cell.font=red_font
+        # column widths
+        wide, narrow = 50,25
+        for i,col in enumerate(filtered.columns, start=1):
             low = col.lower()
-            if low in HIGHLIGHT_COLS or low == 'résumé des faits':
-                ws.column_dimensions[get_column_letter(i)].width = wide
+            if low in HIGHLIGHT_COLS or low=='résumé des faits':
+                ws.column_dimensions[get_column_letter(i)].width=wide
             else:
-                ws.column_dimensions[get_column_letter(i)].width = narrow
-        wb.save(out)
-        out.seek(0)
+                ws.column_dimensions[get_column_letter(i)].width=narrow
+        wb.save(out); out.seek(0)
         last_excel = out.getvalue()
-        return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article, style_block='')
-    return render_template_string(HTML_TEMPLATE, style_block='')
+        return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article, style_block=STYLE_BLOCK)
+    return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
 
 @app.route('/download')
 def download():
@@ -192,8 +158,9 @@ def download():
     fname = f"decisions_filtrees_{last_article}.xlsx"
     return send_file(BytesIO(last_excel), as_attachment=True, download_name=fname)
 
-if __name__ == '__main__':
+if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
