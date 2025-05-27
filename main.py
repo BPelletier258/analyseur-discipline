@@ -10,18 +10,25 @@ app = Flask(__name__)
 last_excel = None
 last_article = None
 
-# Inline CSS for HTML layout, widths, and scroll
+# Inline CSS for HTML layout, widths, scroll bar, and enhanced form styling
 STYLE_BLOCK = '''
-.table-container { overflow-x: auto; margin-top: 20px; }
-table { border-collapse: collapse; width: max-content; }
-th, td { border: 1px solid #444; padding: 8px; vertical-align: top; }
-th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
-.highlight { color: red; font-weight: bold; }
-.summary-link { color: #00e; text-decoration: underline; }
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background: #f5f7fa; }
+h1 { font-size: 2.2em; margin-bottom: 0.5em; color: #333; }
+form { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-end; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 800px; }
+label { font-weight: bold; font-size: 1.4em; color: #444; display: flex; flex-direction: column; }
+input[type=file], input[type=text] { padding: 0.8em; font-size: 1.4em; border: 1px solid #ccc; border-radius: 4px; }
+button { padding: 0.8em 1.6em; font-size: 1.4em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
+button:hover { background: #0056b3; }
+.table-container { overflow-x: auto; margin-top: 30px; }
+table { border-collapse: collapse; width: max-content; background: #fff; }
+th, td { border: 1px solid #888; padding: 10px; vertical-align: top; }
+th { background: #e2e3e5; font-weight: bold; font-size: 1.1em; text-align: center; }
+.highlight { color: #d41e26; font-weight: bold; }
+.summary-link { color: #0066cc; text-decoration: underline; }
 
 /* default narrow columns */
 th, td { width: 25ch; }
-/* wide columns: Résumé des faits col8, Articles enfreints col9, Durée totale col10, Article amende/chef col11, Autres sanctions col13 */
+/* wide columns (detailed info) */
 th:nth-child(8), td:nth-child(8),
 th:nth-child(9), td:nth-child(9),
 th:nth-child(10), td:nth-child(10),
@@ -30,23 +37,22 @@ th:nth-child(13), td:nth-child(13) {
   width: 50ch;
 }
 '''
-
-# Full HTML template
-HTML_TEMPLATE = '''
-<!doctype html>
+HTML_TEMPLATE = '''<!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
   <title>Analyse Disciplinaire</title>
-  <style>
-    {{ style_block|safe }}
-  </style>
+  <style>{{ style_block|safe }}</style>
 </head>
 <body>
   <h1>Analyse Disciplinaire</h1>
   <form method="post" enctype="multipart/form-data">
-    <label>Fichier Excel: <input type="file" name="file" required></label>
-    <label>Article à filtrer: <input type="text" name="article" required></label>
+    <label>Fichier Excel:
+      <input type="file" name="file" required>
+    </label>
+    <label>Article à filtrer:
+      <input type="text" name="article" value="" placeholder="ex: 14 ou 59(2)" required>
+    </label>
     <button type="submit">Analyser</button>
   </form>
   <hr>
@@ -60,25 +66,23 @@ HTML_TEMPLATE = '''
     </div>
   {% endif %}
 </body>
-</html>
-''' 
+</html>'''
 
 # Build regex matching only in Articles enfreints prefixed by Art. or Art:
 def build_pattern(article):
     art = re.escape(article)
-    prefixes_join = '|'.join([r'Art\.\s*', r'Art\s*:\s*'])
-    suffix = r'(?![0-9])'
-    # pattern: (?:Art\.\s*|Art\s*:\s*)<article>(?![0-9])
-    return rf"(?:{prefixes_join}){art}{suffix}"
+    prefixes = [r'Art\.\s*', r'Art\s*:\s*']
+    pat = rf"(?:{'|'.join(prefixes)}){art}(?![0-9])"
+    return pat
 
-# Excel styles
+# Excel styling constants
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 red_font = Font(color="FF0000")
 link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-wrap = Alignment(wrap_text=True, vertical='top')
+wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# Columns eligible for highlighting
+# Columns eligible for Excel highlight
 HIGHLIGHT_COLS = {
     'articles enfreints',
     'durée totale effective radiation',
@@ -93,52 +97,58 @@ def analyze():
         file = request.files['file']
         article = request.form['article'].strip()
         last_article = article
-        df = pd.read_excel(file)
-        # find columns
-        col_inf = next((c for c in df.columns if c.lower()=='articles enfreints'), None)
-        summary_col = next((c for c in df.columns if c.lower()=='résumé'), None)
+        df_raw = pd.read_excel(file)
+        summary_col = next((c for c in df_raw.columns if c.lower() == 'résumé'), None)
         pat = build_pattern(article)
-        # filter only on Articles enfreints
-        mask = df[col_inf].astype(str).apply(lambda v: bool(re.search(pat, v)))
-        filtered = df[mask].copy()
-
-        # prepare HTML table
-        html_df = filtered.fillna('').astype(str)
-        for col in html_df.columns:
-            if col.lower() in HIGHLIGHT_COLS:
-                html_df[col] = html_df[col].apply(lambda v: re.sub(pat, r'<span class="highlight">\g<0></span>', v))
+        # filter only by Articles enfreints column
+        mask = df_raw['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
+        df_filtered = df_raw[mask].copy()
+        # build HTML table
+        html_df = df_filtered.copy()
         if summary_col:
-            html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else '')
+            html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
+            cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
+            html_df = html_df[cols]
+        # highlight searched article in HTML
+        for col in ['Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']:
+            if col in html_df:
+                html_df[col] = html_df[col].astype(str).str.replace(pat, lambda m: f"<span class='highlight'>{m.group(0)}</span>", regex=True)
         table_html = html_df.to_html(index=False, escape=False)
-
-        # build Excel workbook
-        out = BytesIO()
-        wb = Workbook(); ws = wb.active
-        # header row merged
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(filtered.columns))
-        hdr = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
-        hdr.font = Font(size=14, bold=True)
-        # column headers
-        for i, col in enumerate(filtered.columns, start=1):
-            c = ws.cell(row=2, column=i, value=col)
-            c.fill = grey_fill; c.font = Font(size=12,bold=True); c.border=border; c.alignment=wrap
+        # build Excel
+        output = BytesIO()
+        wb = Workbook()
+        ws = wb.active
+        # title row
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_filtered.columns))
+        tcell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
+        tcell.font = Font(size=14, bold=True)
+        # header row
+        for idx, col in enumerate(df_filtered.columns, start=1):
+            c = ws.cell(row=2, column=idx, value=col)
+            c.fill = grey_fill; c.font = Font(size=12, bold=True); c.border = border; c.alignment = wrap_alignment
         # data rows
-        for r, (_, row) in enumerate(filtered.iterrows(), start=3):
-            for i, col in enumerate(filtered.columns, start=1):
-                val = row[col]
-                cell = ws.cell(row=r, column=i, value=val)
-                cell.border=border; cell.alignment=wrap
-                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(val)):
+        for r_idx, (_, row) in enumerate(df_filtered.iterrows(), start=3):
+            for c_idx, col in enumerate(df_filtered.columns, start=1):
+                cell = ws.cell(row=r_idx, column=c_idx)
+                cell.border = border; cell.alignment = wrap_alignment
+                if summary_col and col == summary_col:
+                    if pd.notna(row[col]):
+                        cell.value = 'Résumé'; cell.hyperlink = row[col]; cell.font = link_font
+                else:
+                    cell.value = row[col]
+                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
                     cell.font = red_font
-                if summary_col and col==summary_col and val:
-                    cell.value='Résumé'; cell.hyperlink=val; cell.font=link_font
         # set column widths
-        wide_cols = {'résumé des faits','articles enfreints','durée totale effective radiation','article amende/chef','autres sanctions'}
-        for i, col in enumerate(filtered.columns, start=1):
-            ws.column_dimensions[get_column_letter(i)].width = 50 if col.lower() in wide_cols else 25
-        wb.save(out); out.seek(0)
-        last_excel = out.getvalue()
-        return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article, style_block=STYLE_BLOCK)
+        narrow, wide = 25, 50
+        for idx, col in enumerate(df_filtered.columns, start=1):
+            if col in ['Résumé des faits','Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']:
+                ws.column_dimensions[get_column_letter(idx)].width = wide
+            else:
+                ws.column_dimensions[get_column_letter(idx)].width = narrow
+        wb.save(output)
+        output.seek(0)
+        last_excel = output.getvalue()
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=table_html, searched_article=article)
     return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
 
 @app.route('/download')
@@ -149,8 +159,9 @@ def download():
     fname = f"decisions_filtrees_{last_article}.xlsx"
     return send_file(BytesIO(last_excel), as_attachment=True, download_name=fname)
 
-if __name__=='__main__':
+if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
