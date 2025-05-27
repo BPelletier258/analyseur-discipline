@@ -12,12 +12,13 @@ last_article = None
 
 # Inline CSS for HTML layout, widths, and scroll
 STYLE_BLOCK = '''
-.table-container { overflow-x: auto; margin-top: 30px; }
+.table-container { overflow-x: auto; margin-top: 20px; }
 table { border-collapse: collapse; width: max-content; }
-th, td { border: 1px solid #444; padding: 10px; vertical-align: top; }
+th, td { border: 1px solid #444; padding: 8px; vertical-align: top; }
 th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
 .highlight { color: red; font-weight: bold; }
 .summary-link { color: #00e; text-decoration: underline; }
+
 /* default narrow columns */
 th, td { width: 25ch; }
 /* wide columns: Résumé des faits col8, Articles enfreints col9, Durée totale col10, Article amende/chef col11, Autres sanctions col13 */
@@ -30,6 +31,7 @@ th:nth-child(13), td:nth-child(13) {
 }
 '''
 
+# Full HTML template
 HTML_TEMPLATE = '''
 <!doctype html>
 <html lang="fr">
@@ -38,11 +40,25 @@ HTML_TEMPLATE = '''
   <title>Analyse Disciplinaire</title>
   <style>
     {{ style_block|safe }}
-    ...
   </style>
 </head>
 <body>
-  ...
+  <h1>Analyse Disciplinaire</h1>
+  <form method="post" enctype="multipart/form-data">
+    <label>Fichier Excel: <input type="file" name="file" required></label>
+    <label>Article à filtrer: <input type="text" name="article" required></label>
+    <button type="submit">Analyser</button>
+  </form>
+  <hr>
+  {% if searched_article %}
+    <h2>Article recherché : <span class="highlight">{{ searched_article }}</span></h2>
+    <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
+  {% endif %}
+  {% if table_html %}
+    <div class="table-container">
+      {{ table_html|safe }}
+    </div>
+  {% endif %}
 </body>
 </html>
 '''
@@ -50,9 +66,9 @@ HTML_TEMPLATE = '''
 # Build regex matching only in Articles enfreints prefixed by Art. or Art:
 def build_pattern(article):
     art = re.escape(article)
-    prefixes = [r'Art\.\s*', r'Art\s*:\s*']
+    prefixes = [r'Art\.?\s*', r'Art\s*:\s*']
     suffix = r'(?![0-9])'
-    return rf'(?:{"|".join(prefixes)}){art}{suffix}'
+    return rf'(?:{'|'.join(prefixes)}){art}{suffix}'
 
 # Excel styles
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
@@ -77,35 +93,45 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
         df = pd.read_excel(file)
+        # find columns
         col_inf = next((c for c in df.columns if c.lower()=='articles enfreints'), None)
         summary_col = next((c for c in df.columns if c.lower()=='résumé'), None)
         pat = build_pattern(article)
+        # filter only on Articles enfreints
         mask = df[col_inf].astype(str).apply(lambda v: bool(re.search(pat, v)))
         filtered = df[mask].copy()
+
+        # prepare HTML table
         html_df = filtered.fillna('').astype(str)
-        # Highlight HTML
         for col in html_df.columns:
             if col.lower() in HIGHLIGHT_COLS:
                 html_df[col] = html_df[col].apply(lambda v: re.sub(pat, r'<span class="highlight">\g<0></span>', v))
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else '')
         table_html = html_df.to_html(index=False, escape=False)
-        # Build Excel
+
+        # build Excel workbook
         out = BytesIO()
         wb = Workbook(); ws = wb.active
+        # header row merged
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(filtered.columns))
-        c0 = ws.cell(row=1, column=1, value=f"Article filtré : {article}"); c0.font = Font(size=14, bold=True)
+        hdr = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
+        hdr.font = Font(size=14, bold=True)
+        # column headers
         for i, col in enumerate(filtered.columns, start=1):
             c = ws.cell(row=2, column=i, value=col)
-            c.fill=grey_fill; c.font=Font(size=12,bold=True); c.border=border; c.alignment=wrap
+            c.fill = grey_fill; c.font = Font(size=12,bold=True); c.border=border; c.alignment=wrap
+        # data rows
         for r, (_, row) in enumerate(filtered.iterrows(), start=3):
             for i, col in enumerate(filtered.columns, start=1):
-                cell = ws.cell(row=r, column=i, value=row[col])
-                cell.border = border; cell.alignment = wrap
-                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
+                val = row[col]
+                cell = ws.cell(row=r, column=i, value=val)
+                cell.border=border; cell.alignment=wrap
+                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(val)):
                     cell.font = red_font
-                if summary_col and col==summary_col and row[col]:
-                    cell.value='Résumé'; cell.hyperlink=row[col]; cell.font=link_font
+                if summary_col and col==summary_col and val:
+                    cell.value='Résumé'; cell.hyperlink=val; cell.font=link_font
+        # set column widths
         wide_cols = {'résumé des faits','articles enfreints','durée totale effective radiation','article amende/chef','autres sanctions'}
         for i, col in enumerate(filtered.columns, start=1):
             ws.column_dimensions[get_column_letter(i)].width = 50 if col.lower() in wide_cols else 25
@@ -124,6 +150,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
