@@ -19,7 +19,6 @@ HTML_TEMPLATE = '''
   <title>Analyse Disciplinaire</title>
   <style>
     {{ style_block|safe }}
-    
     body { font-family: Arial, sans-serif; margin: 20px; }
     h1 { font-size: 1.8em; margin-bottom: 0.5em; }
     .form-container { background: #f9f9f9; padding: 20px; border-radius: 5px; max-width: 600px; }
@@ -29,12 +28,9 @@ HTML_TEMPLATE = '''
     .article-label { margin-top: 25px; font-size: 1.3em; font-weight: bold; }
     .table-container { overflow-x: auto; margin-top: 30px; }
     table { border-collapse: collapse; width: 100%; table-layout: auto; }
-    /* default cell width 25ch */
     table td, table th { min-width: 25ch; }
-    
     th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; white-space: normal; }
     th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
-    td { min-width: 25ch; }
     td.detailed { min-width: 50ch; }
     .highlight { color: red; font-weight: bold; }
     a.summary-link { color: #00e; text-decoration: underline; }
@@ -65,10 +61,10 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# match only if prefixed by 'Art. ' or 'Art:'
+# regex matches only prefix Art. or Art: before article
 ART_PATTERN = r'(?:(?<=Art\. )|(?<=Art: ))({})(?![0-9])'
 
-# columns to highlight in HTML
+# detail columns for HTML highlighting and width
 DETAILED_COLS = {
     'articles enfreints',
     'durée totale effective radiation',
@@ -84,81 +80,73 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
         df = pd.read_excel(file)
-        # identify summary and internal comments columns
-        summary_col = next((c for c in df.columns if c.lower()=='résumé'), None)
+        # find summary and internal comments columns (case-insensitive)
+        summary_col = next((c for c in df.columns if c.lower() == 'résumé'), None)
         comment_col = next((c for c in df.columns if 'commentaire' in c.lower()), None)
 
-        # regex to find exact article with prefix
+        # compile pattern
         num = re.escape(article)
         pat = re.compile(ART_PATTERN.format(num))
 
-        # filter rows based on Articles enfreints column only
+        # filter by articles enfreints only
         mask = df['Articles enfreints'].astype(str).apply(lambda x: bool(pat.search(x)))
         filtered = df[mask].copy()
 
-        # prepare HTML table
+        # prepare HTML DataFrame
         html_df = filtered.copy()
-        # render summary as link
+        # render summary column as link
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(
                 lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else ''
             )
-        # blank internal comments
+        # fill internal comments blanks
         if comment_col:
             html_df[comment_col] = html_df[comment_col].fillna('')
 
-        # reorder summary/comment at end
-        cols = [c for c in html_df.columns if c not in {summary_col, comment_col}] + [comment_col or '', summary_col or '']
+        # reorder to put comment and summary at end
+        cols = [c for c in html_df.columns if c not in {summary_col, comment_col}]
+        if comment_col: cols.append(comment_col)
+        if summary_col: cols.append(summary_col)
         html_df = html_df[cols]
 
-                # highlight only matching text in the 4 detail columns
-        def apply_highlight(text, col):
-            if col.lower() in DETAILED_COLS and pd.notna(text):
-                return pat.sub(r'<span class="highlight"># highlight only matching text in the 4 detail columns
-        def apply_highlight(text, col):
-            if col.lower() in DETAILED_COLS and pd.notna(text):
-                return pat.sub(r'<span class="highlight">Art. \1</span>', str(text))
-            return str(text) if pd.notna(text) else ''
+        # highlight matches in detail columns
+        def highlight_text(txt, col):
+            if col.lower() in DETAILED_COLS and txt:
+                return pat.sub(r'<span class="highlight">\1</span>', str(txt))
+            return str(txt) if pd.notna(txt) else ''
 
-        for col in html_df.columns:
-            html_df[col] = html_df[col].apply(lambda v: apply_highlight(v, col))
+        for c in html_df.columns:
+            html_df[c] = html_df[c].apply(lambda v: highlight_text(v, c))
 
-        # add class to detail columns for width</span>', str(text))
-            return str(text) if pd.notna(text) else ''
-
-        for col in html_df.columns:
-            html_df[col] = html_df[col].apply(lambda v: apply_highlight(v, col))
-
-        # generate style overrides for detailed columns widths
-        detailed_indices = [i+1 for i,c in enumerate(html_df.columns) if c.lower() in DETAILED_COLS]
-        # build CSS rules
-        style_block = ""
+        # build style block for detailed columns (nth-child indices)
+        detailed_indices = [i+1 for i, c in enumerate(html_df.columns) if c.lower() in DETAILED_COLS]
+        style_block = ''
         for idx in detailed_indices:
-            style_block += f"table td:nth-child({idx}), table th:nth-child({idx}) {{ min-width: 50ch; }}
-        "
+            style_block += f"table td:nth-child({idx}), table th:nth-child({idx}) {{ min-width: 50ch; }}\n"
 
-        # render HTML
+        # generate HTML
         html = html_df.to_html(index=False, escape=False)
-        table_html = html
-        return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article, style_block=style_block)
-        html = html_df.to_html(index=False, escape=False)
-        # inject td class
-        for col in DETAILED_COLS:
-            html = html.replace(f'<td>', f'<td class="detailed">',  filtered.shape[0])
-
-        table_html = html
-        return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article)
-    return render_template_string(HTML_TEMPLATE)
+        # inject 'detailed' class on td for detailed columns
+        for idx in detailed_indices:
+            html = html.replace(f'<td>', '<td class="detailed">', filtered.shape[0])
+        return render_template_string(HTML_TEMPLATE,
+                                      table_html=html,
+                                      searched_article=article,
+                                      style_block=style_block)
+    return render_template_string(HTML_TEMPLATE, style_block='', table_html=None, searched_article='')
 
 @app.route('/download')
 def download():
-    if not last_excel or not last_article:
+    global last_excel, last_article
+    if not last_article:
         return redirect(url_for('analyze'))
     fname = f"decisions_filtrees_{last_article}.xlsx"
     return send_file(BytesIO(last_excel), as_attachment=True, download_name=fname)
 
 if __name__=='__main__':
     app.run(debug=True)
+
+
 
 
 
