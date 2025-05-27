@@ -1,3 +1,4 @@
+
 import re
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file, redirect, url_for
@@ -59,23 +60,9 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# strict pattern: only match Art. or Art: before number
-ART_PATTERN = r'(?:(?<=Art\.\s)|(?<=Art:\s))({})(?=[^0-9.]|$)'
-
-# Excel styles
-grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-red_font = Font(color="FF0000")
-link_font = Font(color="0000FF", underline="single")
-border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-wrap_alignment = Alignment(wrap_text=True, vertical='top')
-
-# detailed columns set
-DETAILED_COLS = {
-    'articles enfreints',
-    'durée totale effective radiation',
-    'article amende/chef',
-    'autres sanctions'
-}
+# strict pattern: match only Art. or Art: followed by article
+ART_PATTERN = r'(?:(?<=Art\.\s)|(?<=Art:\s))({})(?![0-9.])'
+DETAILED_COLS = { 'articles enfreints', 'durée totale effective radiation', 'article amende/chef', 'autres sanctions' }
 
 @app.route('/', methods=['GET','POST'])
 def analyze():
@@ -85,38 +72,26 @@ def analyze():
         article = request.form['article'].strip()
         last_article = article
         df = pd.read_excel(file)
-        # keep summary col
-        summary_col = next((c for c in df.columns if c.lower() == 'résumé'), None)
-        # build regex
+        summary_col = next((c for c in df.columns if c.lower()=='résumé'), None)
         num = re.escape(article)
         pat = re.compile(ART_PATTERN.format(num))
-        # filter rows by articles enfreints only
         mask = df['Articles enfreints'].astype(str).apply(lambda x: bool(pat.search(x)))
         filtered = df[mask].copy()
-        # prepare HTML
         html_df = filtered.copy()
         if summary_col:
             html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
             cols = [c for c in html_df.columns if c!=summary_col] + [summary_col]
             html_df = html_df[cols]
-        # wrap and highlight classes
-        def highlight_cell(col, val):
-            s = str(val)
-            if col.lower() in DETAILED_COLS and pat.search(s):
-                return f'<span class="highlight">{s}</span>'
-            return s
-        for col in html_df.columns:
-            cls = 'detailed' if col.lower() in DETAILED_COLS else ''
-            html_df[col] = html_df[col].apply(lambda v: f'<td class="{cls}">{highlight_cell(col,v)}</td>')
-        # build table manually
-        cols = html_df.columns.tolist()
-        header = ''.join(f'<th>{c}</th>' for c in cols)
-        rows = ''
-        for _, row in html_df.iterrows():
-            rows += '<tr>' + ''.join(row[col] for col in cols) + '</tr>'
-        table_html = f'<table><thead><tr>{header}</tr></thead><tbody>{rows}</tbody></table>'
-        # Excel workbook creation omitted for brevity (unchanged)
-        # ...
+        def highlight(val, col):
+            if pd.isna(val): return ''
+            text = str(val)
+            if col.lower() in DETAILED_COLS and pat.search(text):
+                return f'<span class="highlight">{text}</span>'
+            return text
+        styled = html_df.copy()
+        for col in styled.columns:
+            styled[col] = styled[col].apply(lambda v: highlight(v, col))
+        table_html = styled.to_html(index=False, escape=False, classes='', table_id='', border=1)
         return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article)
     return render_template_string(HTML_TEMPLATE)
 
@@ -127,8 +102,9 @@ def download():
     fname = f"decisions_filtrees_{last_article}.xlsx"
     return send_file(BytesIO(last_excel), as_attachment=True, download_name=fname)
 
-if __name__ == '__main__':
+if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
