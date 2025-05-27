@@ -18,6 +18,8 @@ HTML_TEMPLATE = '''
   <meta charset="utf-8">
   <title>Analyse Disciplinaire</title>
   <style>
+    {{ style_block|safe }}
+    
     body { font-family: Arial, sans-serif; margin: 20px; }
     h1 { font-size: 1.8em; margin-bottom: 0.5em; }
     .form-container { background: #f9f9f9; padding: 20px; border-radius: 5px; max-width: 600px; }
@@ -27,6 +29,9 @@ HTML_TEMPLATE = '''
     .article-label { margin-top: 25px; font-size: 1.3em; font-weight: bold; }
     .table-container { overflow-x: auto; margin-top: 30px; }
     table { border-collapse: collapse; width: 100%; table-layout: auto; }
+    /* default cell width 25ch */
+    table td, table th { min-width: 25ch; }
+    
     th, td { border: 1px solid #444; padding: 10px; vertical-align: top; word-wrap: break-word; white-space: normal; }
     th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; }
     td { min-width: 25ch; }
@@ -106,7 +111,10 @@ def analyze():
         cols = [c for c in html_df.columns if c not in {summary_col, comment_col}] + [comment_col or '', summary_col or '']
         html_df = html_df[cols]
 
-        # highlight only matching text in the 4 detail columns
+                # highlight only matching text in the 4 detail columns
+        def apply_highlight(text, col):
+            if col.lower() in DETAILED_COLS and pd.notna(text):
+                return pat.sub(r'<span class="highlight"># highlight only matching text in the 4 detail columns
         def apply_highlight(text, col):
             if col.lower() in DETAILED_COLS and pd.notna(text):
                 return pat.sub(r'<span class="highlight">Art. \1</span>', str(text))
@@ -115,7 +123,24 @@ def analyze():
         for col in html_df.columns:
             html_df[col] = html_df[col].apply(lambda v: apply_highlight(v, col))
 
-        # add class to detail columns for width
+        # add class to detail columns for width</span>', str(text))
+            return str(text) if pd.notna(text) else ''
+
+        for col in html_df.columns:
+            html_df[col] = html_df[col].apply(lambda v: apply_highlight(v, col))
+
+        # generate style overrides for detailed columns widths
+        detailed_indices = [i+1 for i,c in enumerate(html_df.columns) if c.lower() in DETAILED_COLS]
+        # build CSS rules
+        style_block = ""
+        for idx in detailed_indices:
+            style_block += f"table td:nth-child({idx}), table th:nth-child({idx}) {{ min-width: 50ch; }}
+        "
+
+        # render HTML
+        html = html_df.to_html(index=False, escape=False)
+        table_html = html
+        return render_template_string(HTML_TEMPLATE, table_html=table_html, searched_article=article, style_block=style_block)
         html = html_df.to_html(index=False, escape=False)
         # inject td class
         for col in DETAILED_COLS:
@@ -134,6 +159,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
