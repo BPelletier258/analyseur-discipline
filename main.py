@@ -61,14 +61,15 @@ HTML_TEMPLATE = '''
   {% endif %}
 </body>
 </html>
-'''
+''' 
 
 # Build regex matching only in Articles enfreints prefixed by Art. or Art:
 def build_pattern(article):
     art = re.escape(article)
-    prefixes = [r'Art\.?\s*', r'Art\s*:\s*']
+    prefixes_join = '|'.join([r'Art\.\s*', r'Art\s*:\s*'])
     suffix = r'(?![0-9])'
-    return rf'(?:{'|'.join(prefixes)}){art}{suffix}'
+    # pattern: (?:Art\.\s*|Art\s*:\s*)<article>(?![0-9])
+    return rf"(?:{prefixes_join}){art}{suffix}"
 
 # Excel styles
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
@@ -150,6 +151,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
