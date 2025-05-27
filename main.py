@@ -21,8 +21,11 @@ th { background: #ddd; font-weight: bold; font-size: 1.1em; text-align: center; 
 /* default narrow columns */
 td, th { width: 25ch; }
 /* wide columns */
-th:nth-child(n+8):nth-child(-n+12) { width: 50ch; }
-td:nth-child(n+8):nth-child(-n+12) { width: 50ch; }
+th, td:nth-child(8), th:nth-child(8) { width: 50ch; }
+th, td:nth-child(9), th:nth-child(9) { width: 50ch; }
+th, td:nth-child(10), th:nth-child(10) { width: 50ch; }
+th, td:nth-child(11), th:nth-child(11) { width: 50ch; }
+th, td:nth-child(13), th:nth-child(13) { width: 50ch; }td:nth-child(n+8):nth-child(-n+12) { width: 50ch; }
 '''
 
 HTML_TEMPLATE = '''
@@ -146,6 +149,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
