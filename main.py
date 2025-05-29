@@ -74,14 +74,11 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# regex: only match when preceded by Art. or Art:
 # regex: only match when preceded by Art. or Art: or Art :
 def build_pattern(article):
     art = re.escape(article)
-    # prefixes autorisés : "Art. ", "Art:" et "Art :"
     prefixes = [r'Art\.\s', r'Art:\s', r'Art\s*:\s']
     pref = '|'.join(prefixes)
-    # on match Art.<espace>59(2), Art: 59(2) ou Art : 59(2), sans chiffrer d’autres chiffres derrière
     return rf'(?:(?:{pref})){art}(?![0-9])'
 
 # Excel styles
@@ -92,7 +89,7 @@ border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(styl
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
 # highlight cols
-HIGHLIGHT_COLS = {'articles enfreints','durée totale effective radiation','article amende/chef','autres sanctions'}
+HIGHLIGHT_COLS = {'Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions'}
 
 @app.route('/', methods=['GET','POST'])
 def analyze():
@@ -100,14 +97,22 @@ def analyze():
     if request.method=='POST':
         file = request.files['file']
         article = request.form['article'].strip()
-        last_article=article
+        last_article = article
         df = pd.read_excel(file)
         pat = build_pattern(article)
         # filtrer uniquement sur la colonne Articles enfreints
         mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_f = df[mask].copy()
         # préparer le tableau HTML
-        html_df = df_f.fillna('')  # enlever les NaN
+        html_df = df_f.fillna('')
+        # surligner en HTML dans les 4 colonnes de détail
+        for col in ['Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']:
+            if col in html_df:
+                html_df[col] = html_df[col].astype(str).str.replace(
+                    pat,
+                    lambda m: f"<span class='highlight'>{m.group(0)}</span>",
+                    regex=True
+                )
         if 'Résumé' in html_df:
             html_df['Résumé'] = html_df['Résumé'].apply(
                 lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else ''
@@ -119,23 +124,18 @@ def analyze():
         ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_f.columns))
         ws.cell(row=1, column=1, value=f"Article filtré : {article}").font = Font(size=14, bold=True)
-        # en-têtes
         for i, col in enumerate(df_f.columns, 1):
             c = ws.cell(row=2, column=i, value=col)
             c.fill = grey_fill; c.font = Font(bold=True); c.border = border; c.alignment = wrap_alignment
-        # données
         for r, row in enumerate(df_f.itertuples(index=False), 3):
             for i, col in enumerate(df_f.columns, 1):
-                val = row[i-1]
+                val = getattr(row, row._fields[i-1])
                 cell = ws.cell(row=r, column=i, value=val if val else '')
                 cell.border = border; cell.alignment = wrap_alignment
-                # coloration des mentions
-                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(val)):
+                if col in HIGHLIGHT_COLS and re.search(pat, str(val)):
                     cell.font = red_font
-                # lien résumé
                 if col=='Résumé' and val:
                     cell.value = 'Résumé'; cell.hyperlink = val; cell.font = link_font
-        # largeur des colonnes
         for idx in range(1, len(df_f.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 25
         for j in [8,9,10,11,13]:
@@ -153,6 +153,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
