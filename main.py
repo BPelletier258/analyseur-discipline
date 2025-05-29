@@ -114,7 +114,8 @@ def analyze():
             cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
             html_df = html_df[cols]
         # highlight searched article in HTML
-        for col in ['Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']:
+        detail_cols = ['Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']
+        for col in detail_cols:
             if col in html_df:
                 html_df[col] = html_df[col].astype(str).str.replace(pat, lambda m: f"<span class='highlight'>{m.group(0)}</span>", regex=True)
         table_html = html_df.to_html(index=False, escape=False)
@@ -145,12 +146,27 @@ def analyze():
         # set column widths
         narrow, wide = 25, 50
         for idx, col in enumerate(df_filtered.columns, start=1):
-            if col in ['Résumé des faits','Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']:
+            if col in ['Résumé des faits','Articles enfrreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']:
                 ws.column_dimensions[get_column_letter(idx)].width = wide
             else:
                 ws.column_dimensions[get_column_letter(idx)].width = narrow
         wb.save(output)
         output.seek(0)
+
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=table_html, searched_article=article)
+    return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
+
+@app.route('/download')
+def download():
+    global last_excel, last_article
+    if not last_excel or not last_article:
+        return redirect(url_for('analyze'))
+    fname = f"decisions_filtrees_{last_article}.xlsx"
+    return send_file(BytesIO(last_excel), as_attachment=True, download_name=fname)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
 
 
 
