@@ -75,10 +75,13 @@ HTML_TEMPLATE = '''
 '''
 
 # regex: only match when preceded by Art. or Art:
+# regex: only match when preceded by Art. or Art: or Art :
 def build_pattern(article):
     art = re.escape(article)
-    prefixes = [r'Art\.\s', r'Art:\s']
+    # prefixes autorisés : "Art. ", "Art:" et "Art :"
+    prefixes = [r'Art\.\s', r'Art:\s', r'Art\s*:\s']
     pref = '|'.join(prefixes)
+    # on match Art.<espace>59(2), Art: 59(2) ou Art : 59(2), sans chiffrer d’autres chiffres derrière
     return rf'(?:(?:{pref})){art}(?![0-9])'
 
 # Excel styles
@@ -150,6 +153,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
