@@ -19,7 +19,7 @@ label { font-weight: bold; font-size: 1.05em; color: #444; display: flex; flex-d
 input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 1px solid #ccc; border-radius: 4px; }
 button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
 button:hover { background: #0056b3; }
-.table-container { overflow-x: auto; margin-top: 30px; }
+.table-container { overflow-x: scroll; margin-top: 30px; }
 table { border-collapse: collapse; width: max-content; background: #fff; }
 th, td { border: 1px solid #888; padding: 8px; vertical-align: top; }
 th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center; }
@@ -29,15 +29,18 @@ th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center;
 /* default narrow columns */
 th, td { width: 25ch; }
 /* wide columns (detailed info) */
-th:nth-child(8), td:nth-child(8),
-th:nth-child(9), td:nth-child(9),
-th:nth-child(10), td:nth-child(10),
-th:nth-child(11), td:nth-child(11),
-th-child(13), td:nth-child(13) {
+th:nth-child(8), td:nth-child(8),   /* Résumé des faits */
+th:nth-child(9), td:nth-child(9),   /* Articles enfreints */
+th:nth-child(10), td:nth-child(10), /* Durée totale effective radiation */
+th:nth-child(11), td:nth-child(11), /* Article amende/chef */
+th:nth-child(13), td:nth-child(13)  /* Autres sanctions */ {
   width: 50ch;
 }
-'''  
-HTML_TEMPLATE = '''<!doctype html>
+'''
+
+# Full HTML template
+HTML_TEMPLATE = '''
+<!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
@@ -103,6 +106,7 @@ def analyze():
         # filter only by Articles enfreints column
         mask = df_raw['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_filtered = df_raw[mask].copy()
+
         # build HTML table
         html_df = df_filtered.copy()
         if summary_col:
@@ -114,7 +118,8 @@ def analyze():
             if col in html_df:
                 html_df[col] = html_df[col].astype(str).str.replace(pat, lambda m: f"<span class='highlight'>{m.group(0)}</span>", regex=True)
         table_html = html_df.to_html(index=False, escape=False)
-        # build Excel
+
+        # build Excel workbook
         output = BytesIO()
         wb = Workbook()
         ws = wb.active
@@ -131,9 +136,8 @@ def analyze():
             for c_idx, col in enumerate(df_filtered.columns, start=1):
                 cell = ws.cell(row=r_idx, column=c_idx)
                 cell.border = border; cell.alignment = wrap_alignment
-                if summary_col and col == summary_col:
-                    if pd.notna(row[col]):
-                        cell.value = 'Résumé'; cell.hyperlink = row[col]; cell.font = link_font
+                if summary_col and col == summary_col and pd.notna(row[col]):
+                    cell.value = 'Résumé'; cell.hyperlink = row[col]; cell.font = link_font
                 else:
                     cell.value = row[col]
                 if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(row[col])):
@@ -147,20 +151,7 @@ def analyze():
                 ws.column_dimensions[get_column_letter(idx)].width = narrow
         wb.save(output)
         output.seek(0)
-        last_excel = output.getvalue()
-        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=table_html, searched_article=article)
-    return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
 
-@app.route('/download')
-def download():
-    global last_excel, last_article
-    if not last_excel or not last_article:
-        return redirect(url_for('analyze'))
-    fname = f"decisions_filtrees_{last_article}.xlsx"
-    return send_file(BytesIO(last_excel), as_attachment=True, download_name=fname)
-
-if __name__ == '__main__':
-    app.run(debug=True)
 
 
 
