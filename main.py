@@ -21,11 +21,13 @@ input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 
 button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
 button:hover { background: #0056b3; }
 .table-container {
-  overflow-x: scroll;          /* toujours visible */
-  scrollbar-gutter: stable;    /* garder l'espace disponible */
+  width: 100%;              /* occupe toute la largeur */
+  overflow-x: scroll;       /* toujours visible */
+  overflow-y: hidden;
+  scrollbar-gutter: stable; /* garder l'espace du scroll */
   margin-top: 30px;
 }
-table { border-collapse: collapse; width: max-content; background: #fff; }
+table { border-collapse: collapse; width: max-content; background: #fff; display: inline-block; }
 th, td { border: 1px solid #888; padding: 8px; vertical-align: top; }
 th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center; }
 .highlight { color: #d41e26; font-weight: bold; }
@@ -33,8 +35,12 @@ th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center;
 
 /* largeur par défaut */
 th, td { width: 25ch; }
-/* colonnes larges */
-th:nth-child(8), td:nth-child(8), th:nth-child(9), td:nth-child(9), th:nth-child(10), td:nth-child(10), th:nth-child(11), td:nth-child(11), th:nth-child(13), td:nth-child(13) { width: 50ch; }
+/* colonnes détaillées en 50ch */
+th:nth-child(8), td:nth-child(8),
+th:nth-child(9), td:nth-child(9),
+th:nth-child(10), td:nth-child(10),
+th:nth-child(11), td:nth-child(11),
+th:nth-child(13), td:nth-child(13) { width: 50ch; }
 ''' 
 
 HTML_TEMPLATE = '''
@@ -82,7 +88,8 @@ link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# highlight cols\HIGHLIGHT_COLS = {'articles enfreints','durée totale effective radiation','article amende/chef','autres sanctions'}
+# highlight cols
+HIGHLIGHT_COLS = {'articles enfreints','durée totale effective radiation','article amende/chef','autres sanctions'}
 
 @app.route('/', methods=['GET','POST'])
 def analyze():
@@ -93,36 +100,39 @@ def analyze():
         last_article=article
         df = pd.read_excel(file)
         pat = build_pattern(article)
+        # filtrer uniquement sur la colonne Articles enfreints
         mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_f = df[mask].copy()
-        # HTML build
-        html_df = df_f.copy()
-        if 'Commentaires internes' in html_df:
-            html_df['Commentaires internes'] = html_df['Commentaires internes'].fillna('')
+        # préparer le tableau HTML
+        html_df = df_f.fillna('')  # enlever les NaN
         if 'Résumé' in html_df:
-            html_df['Résumé'] = html_df['Résumé'].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
+            html_df['Résumé'] = html_df['Résumé'].apply(
+                lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else ''
+            )
         table_html = html_df.to_html(index=False, escape=False)
-        # Excel build
+        # construire le fichier Excel
         buf = BytesIO()
         wb = Workbook()
         ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_f.columns))
         ws.cell(row=1, column=1, value=f"Article filtré : {article}").font = Font(size=14, bold=True)
-        # headers
+        # en-têtes
         for i, col in enumerate(df_f.columns, 1):
             c = ws.cell(row=2, column=i, value=col)
             c.fill = grey_fill; c.font = Font(bold=True); c.border = border; c.alignment = wrap_alignment
-        # data
+        # données
         for r, row in enumerate(df_f.itertuples(index=False), 3):
             for i, col in enumerate(df_f.columns, 1):
                 val = row[i-1]
-                cell = ws.cell(row=r, column=i, value=val if not pd.isna(val) else ('') if col=='Commentaires internes' else None)
+                cell = ws.cell(row=r, column=i, value=val if val else '')
                 cell.border = border; cell.alignment = wrap_alignment
+                # coloration des mentions
                 if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(val)):
                     cell.font = red_font
-                if col == 'Résumé' and val:
+                # lien résumé
+                if col=='Résumé' and val:
                     cell.value = 'Résumé'; cell.hyperlink = val; cell.font = link_font
-        # widths
+        # largeur des colonnes
         for idx in range(1, len(df_f.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 25
         for j in [8,9,10,11,13]:
@@ -140,6 +150,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
