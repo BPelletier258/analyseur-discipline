@@ -56,7 +56,7 @@ HTML_TEMPLATE = '''
   <div class="form-container">
     <form method="post" enctype="multipart/form-data">
       <label>Fichier Excel:<input type="file" name="file" required></label>
-      <label>Article à filtrer:<input type="text" name="article" value="" placeholder="ex: 14 ou 59(2)" required></label>
+      <label>Article à filtrer:<input type="text" name="article" placeholder="ex: 14 ou 59(2)" required></label>
       <button type="submit">Analyser</button>
     </form>
   </div>
@@ -88,71 +88,110 @@ link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# highlight cols
-HIGHLIGHT_COLS = {'Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions'}
+# colonnes à surligner
+HIGHLIGHT_COLS = {
+    'Articles enfreints',
+    'Durée totale effective radiation',
+    'Article amende/chef',
+    'Autres sanctions'
+}
 
 @app.route('/', methods=['GET','POST'])
 def analyze():
     global last_excel, last_article
-    if request.method=='POST':
+    if request.method == 'POST':
         file = request.files['file']
         article = request.form['article'].strip()
         last_article = article
         df = pd.read_excel(file)
         pat = build_pattern(article)
-        # filtrer uniquement sur la colonne Articles enfreints
+
+        # filtrage EXCLU uniquement sur la colonne Articles enfreints
         mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_f = df[mask].copy()
-        # préparer le tableau HTML
+
+        # préparation du DataFrame pour l'affichage HTML
         html_df = df_f.fillna('')
-        # surligner en HTML dans les 4 colonnes de détail
-        for col in ['Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']:
-            if col in html_df:
+
+        # surlignage en HTML dans les 4 colonnes de détail
+        for col in HIGHLIGHT_COLS:
+            if col in html_df.columns:
                 html_df[col] = html_df[col].astype(str).str.replace(
                     pat,
                     lambda m: f"<span class='highlight'>{m.group(0)}</span>",
                     regex=True
                 )
-        if 'Résumé' in html_df:
+
+        # lien résumé si la colonne existe
+        if 'Résumé' in html_df.columns:
             html_df['Résumé'] = html_df['Résumé'].apply(
                 lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else ''
             )
+
         table_html = html_df.to_html(index=False, escape=False)
-        # construire le fichier Excel
+
+        # génération du fichier Excel
         buf = BytesIO()
         wb = Workbook()
         ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_f.columns))
         ws.cell(row=1, column=1, value=f"Article filtré : {article}").font = Font(size=14, bold=True)
+
+        # en-têtes
         for i, col in enumerate(df_f.columns, 1):
             c = ws.cell(row=2, column=i, value=col)
-            c.fill = grey_fill; c.font = Font(bold=True); c.border = border; c.alignment = wrap_alignment
+            c.fill = grey_fill
+            c.font = Font(bold=True)
+            c.border = border
+            c.alignment = wrap_alignment
+
+        # données
         for r, row in enumerate(df_f.itertuples(index=False), 3):
             for i, col in enumerate(df_f.columns, 1):
                 val = getattr(row, row._fields[i-1])
                 cell = ws.cell(row=r, column=i, value=val if val else '')
-                cell.border = border; cell.alignment = wrap_alignment
+                cell.border = border
+                cell.alignment = wrap_alignment
                 if col in HIGHLIGHT_COLS and re.search(pat, str(val)):
                     cell.font = red_font
-                if col=='Résumé' and val:
-                    cell.value = 'Résumé'; cell.hyperlink = val; cell.font = link_font
+                if col == 'Résumé' and val:
+                    cell.value = 'Résumé'
+                    cell.hyperlink = val
+                    cell.font = link_font
+
+        # largeur des colonnes
         for idx in range(1, len(df_f.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 25
         for j in [8,9,10,11,13]:
             ws.column_dimensions[get_column_letter(j)].width = 50
-        wb.save(buf); buf.seek(0)
+
+        wb.save(buf)
+        buf.seek(0)
         last_excel = buf.getvalue()
-        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=table_html, searched_article=article)
+
+        return render_template_string(
+            HTML_TEMPLATE,
+            style_block=STYLE_BLOCK,
+            table_html=table_html,
+            searched_article=article
+        )
+
     return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
 
 @app.route('/download')
 def download():
     global last_excel, last_article
-    if not last_excel: return redirect(url_for('analyze'))
-    return send_file(BytesIO(last_excel), as_attachment=True, download_name=f"decisions_filtrees_{last_article}.xlsx")
+    if not last_excel:
+        return redirect(url_for('analyze'))
+    return send_file(
+        BytesIO(last_excel),
+        as_attachment=True,
+        download_name=f"decisions_filtrees_{last_article}.xlsx"
+    )
 
-if __name__=='__main__':
+if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
