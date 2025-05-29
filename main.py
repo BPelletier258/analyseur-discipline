@@ -20,7 +20,7 @@ label { font-weight: bold; font-size: 1.05em; color: #444; display: flex; flex-d
 input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 1px solid #ccc; border-radius: 4px; }
 button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
 button:hover { background: #0056b3; }
-.table-container { overflow-x: scroll; margin-top: 30px; }
+.table-container { overflow-x: auto; /* always show horizontal scrollbar */ margin-top: 30px; }
 table { border-collapse: collapse; width: max-content; background: #fff; }
 th, td { border: 1px solid #888; padding: 8px; vertical-align: top; }
 th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center; }
@@ -100,21 +100,27 @@ def analyze():
             html_df[sum_col] = html_df[sum_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else '')
             cols = [c for c in html_df.columns if c!=sum_col] + [sum_col]
             html_df = html_df[cols]
+        sum_idx = df_f.columns.get_loc(sum_col) if sum_col else None
         for col in ['Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']:
-            if col in html_df:
+            if col in html_df.columns:
                 html_df[col] = html_df[col].astype(str).str.replace(pat, lambda m: f"<span class='highlight'>{m.group(0)}</span>", regex=True)
         table_html = html_df.to_html(index=False, escape=False)
+
+        # Excel export
         out = BytesIO(); wb=Workbook(); ws=wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_f.columns))
         ws.cell(1,1,f"Article filtré : {article}").font=Font(size=14,bold=True)
         for i,col in enumerate(df_f.columns,1):
             c=ws.cell(2,i,col); c.fill=grey_fill; c.font=Font(size=12,bold=True); c.border=border; c.alignment=wrap_alignment
-        for r,row in enumerate(df_f.itertuples(index=False),3):
+        for r_idx,row in enumerate(df_f.itertuples(index=False),3):
             for i,val in enumerate(row,1):
                 col_name = df_f.columns[i-1]
-                cell = ws.cell(r,i)
+                cell = ws.cell(r_idx,i)
                 if sum_col and col_name==sum_col:
-                    cell.value = 'Résumé'; cell.hyperlink = getattr(row, i-1); cell.font = link_font
+                    url = row[sum_idx]
+                    cell.value = 'Résumé'
+                    cell.hyperlink = url
+                    cell.font = link_font
                 else:
                     cell.value = val
                 cell.border = border; cell.alignment = wrap_alignment
@@ -125,6 +131,7 @@ def analyze():
         for idx, col in enumerate(df_f.columns, start=1):
             ws.column_dimensions[get_column_letter(idx)].width = wide if col in wide_list else narrow
         wb.save(out); out.seek(0); last_excel = out.getvalue()
+
         return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=table_html, searched_article=article)
     return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
 
@@ -136,6 +143,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
