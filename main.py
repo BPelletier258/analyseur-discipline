@@ -68,22 +68,21 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-# strict regex: only match when preceded by Art. or Art:
+# regex: only match when preceded by Art. or Art:
 def build_pattern(article):
     art = re.escape(article)
     prefixes = [r'Art\.\s', r'Art:\s']
     pref = '|'.join(prefixes)
     return rf'(?:(?:{pref})){art}(?![0-9])'
 
-# Excel styles setup
+# Excel styles
 grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 red_font = Font(color="FF0000")
 link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# cols where to highlight
-HIGHLIGHT_COLS = {'articles enfreints','durée totale effective radiation','article amende/chef','autres sanctions'}
+# highlight cols\HIGHLIGHT_COLS = {'articles enfreints','durée totale effective radiation','article amende/chef','autres sanctions'}
 
 @app.route('/', methods=['GET','POST'])
 def analyze():
@@ -94,51 +93,54 @@ def analyze():
         last_article=article
         df = pd.read_excel(file)
         pat = build_pattern(article)
-        mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat,v)))
+        mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_f = df[mask].copy()
-        # build HTML
+        # HTML build
         html_df = df_f.copy()
         if 'Commentaires internes' in html_df:
-            html_df['Commentaires internes']=html_df['Commentaires internes'].fillna('')
+            html_df['Commentaires internes'] = html_df['Commentaires internes'].fillna('')
         if 'Résumé' in html_df:
-            html_df['Résumé']=html_df['Résumé'].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
+            html_df['Résumé'] = html_df['Résumé'].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
         table_html = html_df.to_html(index=False, escape=False)
-        # build Excel
-        buf=BytesIO()
-        wb=Workbook()
-        ws=wb.active
-        ws.merge_cells(start_row=1,start_column=1,end_row=1,end_column=len(df_f.columns))
-        ws.cell(row=1,column=1,value=f"Article filtré : {article}").font=Font(size=14,bold=True)
-        for i,col in enumerate(df_f.columns,1):
-            c=ws.cell(row=2,column=i,value=col)
-            c.fill=grey_fill; c.font=Font(bold=True); c.border=border; c.alignment=wrap_alignment
-        for r,row in enumerate(df_f.itertuples(index=False),3):
-            for i,col in enumerate(df_f.columns,1):
-                val=getattr(row,i-1)
-                cell=ws.cell(row=r,column=i,value=val if not pd.isna(val) else ('' if col=='Commentaires internes' else None))
-                cell.border=border; cell.alignment=wrap_alignment
-                if col.lower() in HIGHLIGHT_COLS and re.search(pat,str(val)):
-                    cell.font=red_font
-                if col=='Résumé' and val:
-                    cell.value='Résumé'; cell.hyperlink=val; cell.font=link_font
-        # set widths
-        for idx,letter in enumerate(ws.column_dimensions,1):
-            ws.column_dimensions[get_column_letter(idx)].width=25
+        # Excel build
+        buf = BytesIO()
+        wb = Workbook()
+        ws = wb.active
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_f.columns))
+        ws.cell(row=1, column=1, value=f"Article filtré : {article}").font = Font(size=14, bold=True)
+        # headers
+        for i, col in enumerate(df_f.columns, 1):
+            c = ws.cell(row=2, column=i, value=col)
+            c.fill = grey_fill; c.font = Font(bold=True); c.border = border; c.alignment = wrap_alignment
+        # data
+        for r, row in enumerate(df_f.itertuples(index=False), 3):
+            for i, col in enumerate(df_f.columns, 1):
+                val = row[i-1]
+                cell = ws.cell(row=r, column=i, value=val if not pd.isna(val) else ('') if col=='Commentaires internes' else None)
+                cell.border = border; cell.alignment = wrap_alignment
+                if col.lower() in HIGHLIGHT_COLS and re.search(pat, str(val)):
+                    cell.font = red_font
+                if col == 'Résumé' and val:
+                    cell.value = 'Résumé'; cell.hyperlink = val; cell.font = link_font
+        # widths
+        for idx in range(1, len(df_f.columns)+1):
+            ws.column_dimensions[get_column_letter(idx)].width = 25
         for j in [8,9,10,11,13]:
-            ws.column_dimensions[get_column_letter(j)].width=50
+            ws.column_dimensions[get_column_letter(j)].width = 50
         wb.save(buf); buf.seek(0)
-        last_excel=buf.getvalue()
+        last_excel = buf.getvalue()
         return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=table_html, searched_article=article)
     return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
 
 @app.route('/download')
 def download():
-    global last_excel,last_article
+    global last_excel, last_article
     if not last_excel: return redirect(url_for('analyze'))
-    return send_file(BytesIO(last_excel),as_attachment=True,download_name=f"decisions_filtrees_{last_article}.xlsx")
+    return send_file(BytesIO(last_excel), as_attachment=True, download_name=f"decisions_filtrees_{last_article}.xlsx")
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
