@@ -20,7 +20,7 @@ label { font-weight: bold; font-size: 1.05em; color: #444; display: flex; flex-d
 input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 1px solid #ccc; border-radius: 4px; }
 button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
 button:hover { background: #0056b3; }
-.table-container { overflow-x: auto; /* always show horizontal scrollbar */ margin-top: 30px; }
+.table-container { overflow-x: scroll; /* always show horizontal scrollbar */ /* always show horizontal scrollbar */ margin-top: 30px; }
 table { border-collapse: collapse; width: max-content; background: #fff; }
 th, td { border: 1px solid #888; padding: 8px; vertical-align: top; }
 th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center; }
@@ -143,6 +143,7 @@ def download():
 
 if __name__=='__main__':
     app.run(debug=True)
+
 
 
 
