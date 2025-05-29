@@ -19,7 +19,7 @@ label { font-weight: bold; font-size: 1.05em; color: #444; display: flex; flex-d
 input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 1px solid #ccc; border-radius: 4px; }
 button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
 button:hover { background: #0056b3; }
-.table-container { overflow-x: scroll; margin-top: 30px; }
+.table-container { overflow-x: auto; margin-top: 30px; }
 table { border-collapse: collapse; width: max-content; background: #fff; }
 th, td { border: 1px solid #888; padding: 8px; vertical-align: top; }
 th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center; }
@@ -37,39 +37,6 @@ th:nth-child(13), td:nth-child(13)  /* Autres sanctions */ {
   width: 50ch;
 }
 '''
-
-# Full HTML template
-HTML_TEMPLATE = '''
-<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8">
-  <title>Analyse Disciplinaire</title>
-  <style>{{ style_block|safe }}</style>
-</head>
-<body>
-  <h1>Analyse Disciplinaire</h1>
-  <form method="post" enctype="multipart/form-data">
-    <label>Fichier Excel:
-      <input type="file" name="file" required>
-    </label>
-    <label>Article à filtrer:
-      <input type="text" name="article" value="" placeholder="ex: 14 ou 59(2)" required>
-    </label>
-    <button type="submit">Analyser</button>
-  </form>
-  <hr>
-  {% if searched_article %}
-    <h2>Article recherché : <span class="highlight">{{ searched_article }}</span></h2>
-    <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
-  {% endif %}
-  {% if table_html %}
-    <div class="table-container">
-      {{ table_html|safe }}
-    </div>
-  {% endif %}
-</body>
-</html>'''
 
 # Build regex matching only in Articles enfreints prefixed by Art. or Art:
 def build_pattern(article):
@@ -102,18 +69,23 @@ def analyze():
         last_article = article
         df_raw = pd.read_excel(file)
         summary_col = next((c for c in df_raw.columns if c.lower() == 'résumé'), None)
+        comment_col = next((c for c in df_raw.columns if c.lower() == 'commentaires internes'), None)
         pat = build_pattern(article)
         # filter only by Articles enfreints column
         mask = df_raw['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_filtered = df_raw[mask].copy()
 
+        # fillna for comments
+        if comment_col:
+            df_filtered[comment_col] = df_filtered[comment_col].fillna('')
+
         # build HTML table
-        html_df = df_filtered.copy()
+        html_df = df_filtered.copy().fillna('')
         if summary_col:
-            html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if pd.notna(u) else '')
+            html_df[summary_col] = html_df[summary_col].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else '')
             cols = [c for c in html_df.columns if c != summary_col] + [summary_col]
             html_df = html_df[cols]
-        # highlight searched article in HTML
+        # highlight searched article in HTML only in detail cols
         detail_cols = ['Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']
         for col in detail_cols:
             if col in html_df:
@@ -137,7 +109,7 @@ def analyze():
             for c_idx, col in enumerate(df_filtered.columns, start=1):
                 cell = ws.cell(row=r_idx, column=c_idx)
                 cell.border = border; cell.alignment = wrap_alignment
-                if summary_col and col == summary_col and pd.notna(row[col]):
+                if summary_col and col == summary_col and row[col]:
                     cell.value = 'Résumé'; cell.hyperlink = row[col]; cell.font = link_font
                 else:
                     cell.value = row[col]
@@ -145,15 +117,15 @@ def analyze():
                     cell.font = red_font
         # set column widths
         narrow, wide = 25, 50
+        wide_cols = ['Résumé des faits','Articles enfreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']
         for idx, col in enumerate(df_filtered.columns, start=1):
-            if col in ['Résumé des faits','Articles enfrreints','Durée totale effective radiation','Article amende/chef','Autres sanctions']:
-                ws.column_dimensions[get_column_letter(idx)].width = wide
-            else:
-                ws.column_dimensions[get_column_letter(idx)].width = narrow
+            ws.column_dimensions[get_column_letter(idx)].width = wide if col in wide_cols else narrow
         wb.save(output)
         output.seek(0)
+        last_excel = output.getvalue()
 
         return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=table_html, searched_article=article)
+    # GET
     return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
 
 @app.route('/download')
@@ -166,6 +138,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
