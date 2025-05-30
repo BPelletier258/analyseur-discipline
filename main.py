@@ -21,11 +21,10 @@ input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 
 button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
 button:hover { background: #0056b3; }
 .table-container {
-  width: 100%;                         /* occupe toute la largeur */
-  overflow-x: auto;                   /* scrollbar toujours active */
+  width: 100%;                       /* occupe toute la largeur */
+  overflow-x: scroll;               /* scrollbar horizontale toujours visible */
   overflow-y: hidden;
-  scrollbar-gutter: both-edges;        /* réserve l'espace pour la scrollbar */
-  -webkit-overflow-scrolling: touch;   /* fluidité sur mobile */
+  -webkit-overflow-scrolling: touch; /* fluidité sur mobile */
   margin-top: 30px;
 }
 table { border-collapse: collapse; width: max-content; background: #fff; display: inline-block; }
