@@ -21,10 +21,11 @@ input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 
 button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
 button:hover { background: #0056b3; }
 .table-container {
-  width: 100%;              /* occupe toute la largeur */
-  overflow-x: scroll;       /* toujours visible */
+  width: 100%;                         /* occupe toute la largeur */
+  overflow-x: scroll;                  /* scrollbar toujours active */
   overflow-y: hidden;
-  scrollbar-gutter: stable; /* garder l'espace du scroll */
+  scrollbar-gutter: both-edges;        /* réserve l'espace pour la scrollbar */
+  -webkit-overflow-scrolling: touch;   /* fluidité sur mobile */
   margin-top: 30px;
 }
 table { border-collapse: collapse; width: max-content; background: #fff; display: inline-block; }
@@ -40,7 +41,7 @@ th:nth-child(8), td:nth-child(8),
 th:nth-child(9), td:nth-child(9),
 th:nth-child(10), td:nth-child(10),
 th:nth-child(11), td:nth-child(11),
-th:nth-child(13), td:nth-child(13) { width: 50ch; }
+th-child(13), td:nth-child(13) { width: 50ch; }
 ''' 
 
 HTML_TEMPLATE = '''
@@ -88,7 +89,7 @@ link_font = Font(color="0000FF", underline="single")
 border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
-# colonnes à surligner
+# colonnes à surligner en Excel
 HIGHLIGHT_COLS = {
     'Articles enfreints',
     'Durée totale effective radiation',
@@ -106,14 +107,13 @@ def analyze():
         df = pd.read_excel(file)
         pat = build_pattern(article)
 
-        # filtrage EXCLU uniquement sur la colonne Articles enfreints
+        # filtrage sur la colonne Articles enfreints
         mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_f = df[mask].copy()
 
-        # préparation du DataFrame pour l'affichage HTML
+        # préparation du DataFrame HTML
         html_df = df_f.fillna('')
-
-        # surlignage en HTML dans les 4 colonnes de détail
+        # surlignage HTML
         for col in HIGHLIGHT_COLS:
             if col in html_df.columns:
                 html_df[col] = html_df[col].astype(str).str.replace(
@@ -121,8 +121,7 @@ def analyze():
                     lambda m: f"<span class='highlight'>{m.group(0)}</span>",
                     regex=True
                 )
-
-        # lien résumé si la colonne existe
+        # lien Résumé
         if 'Résumé' in html_df.columns:
             html_df['Résumé'] = html_df['Résumé'].apply(
                 lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else ''
@@ -130,13 +129,13 @@ def analyze():
 
         table_html = html_df.to_html(index=False, escape=False)
 
-        # génération du fichier Excel
+        # génération Excel
         buf = BytesIO()
         wb = Workbook()
         ws = wb.active
+        # titre
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_f.columns))
         ws.cell(row=1, column=1, value=f"Article filtré : {article}").font = Font(size=14, bold=True)
-
         # en-têtes
         for i, col in enumerate(df_f.columns, 1):
             c = ws.cell(row=2, column=i, value=col)
@@ -144,7 +143,6 @@ def analyze():
             c.font = Font(bold=True)
             c.border = border
             c.alignment = wrap_alignment
-
         # données
         for r, row in enumerate(df_f.itertuples(index=False), 3):
             for i, col in enumerate(df_f.columns, 1):
@@ -158,7 +156,6 @@ def analyze():
                     cell.value = 'Résumé'
                     cell.hyperlink = val
                     cell.font = link_font
-
         # largeur des colonnes
         for idx in range(1, len(df_f.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 25
@@ -175,7 +172,6 @@ def analyze():
             table_html=table_html,
             searched_article=article
         )
-
     return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
 
 @app.route('/download')
@@ -191,6 +187,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
