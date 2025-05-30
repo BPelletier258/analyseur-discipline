@@ -78,7 +78,7 @@ HTML_TEMPLATE = '''
 # regex: only match when preceded by Art. or Art: or Art :
 def build_pattern(article):
     art = re.escape(article)
-    prefixes = [r'Art\.\s', r'Art:\s', r'Art\s*:']
+    prefixes = [r'Art\.' + r'\s*', r'Art:' + r'\s*', r'Art' + r'\s*:' + r'\s*']
     pref = '|'.join(prefixes)
     return rf'(?:(?:{pref})){art}(?![0-9])'
 
@@ -130,24 +130,21 @@ def analyze():
         table_html = html_df.to_html(index=False, escape=False)
 
         # génération Excel
-        buf = BytesIO()
+        buf =(BytesIO())
         wb = Workbook()
         ws = wb.active
-        # titre
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_f.columns))
         ws.cell(row=1, column=1, value=f"Article filtré : {article}").font = Font(size=14, bold=True)
-        # en-têtes
         for i, col in enumerate(df_f.columns, 1):
             c = ws.cell(row=2, column=i, value=col)
             c.fill = grey_fill
             c.font = Font(bold=True)
             c.border = border
             c.alignment = wrap_alignment
-        # données
         for r, row in enumerate(df_f.itertuples(index=False), 3):
             for i, col in enumerate(df_f.columns, 1):
                 val = getattr(row, row._fields[i-1])
-                cell = ws.cell(row=r, column=i, value=val if val else '')
+                cell = ws.cell(row=r, column=i, value=(val if val else ''))
                 cell.border = border
                 cell.alignment = wrap_alignment
                 if col in HIGHLIGHT_COLS and re.search(pat, str(val)):
@@ -156,7 +153,6 @@ def analyze():
                     cell.value = 'Résumé'
                     cell.hyperlink = val
                     cell.font = link_font
-        # largeur des colonnes
         for idx in range(1, len(df_f.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 25
         for j in [8,9,10,11,13]:
@@ -187,6 +183,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
