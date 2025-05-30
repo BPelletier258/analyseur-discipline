@@ -21,11 +21,11 @@ input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 
 button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
 button:hover { background: #0056b3; }
 .table-container {
-  width: 100%;                       /* occupe toute la largeur */
-  overflow-x: scroll;               /* scrollbar horizontale toujours présente */
+  width: 100%;
+  overflow-x: scroll;
   overflow-y: hidden;
-  scrollbar-gutter: stable both-edges; /* réserve l’espace de la scrollbar */
-  -webkit-overflow-scrolling: touch; /* fluidité sur mobile */
+  scrollbar-gutter: stable both-edges;
+  -webkit-overflow-scrolling: touch;
   margin-top: 30px;
 }
 table { border-collapse: collapse; width: max-content; background: #fff; display: inline-block; }
@@ -34,14 +34,15 @@ th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center;
 .highlight { color: #d41e26; font-weight: bold; }
 .summary-link { color: #0066cc; text-decoration: underline; }
 
-/* largeur par défaut */
+/* Largeur par défaut sur toutes les colonnes */
 th, td { width: 25ch; }
-/* colonnes détaillées en 50ch */
-th:nth-child(8), td:nth-child(8),
-th:nth-child(9), td:nth-child(9),
-th:nth-child(10), td:nth-child(10),
-th:nth-child(11), td:nth-child(11),
-th:nth-child(13), td:nth-child(13) { width: 50ch; }
+/* Colonnes détaillées à largeur double */
+th:nth-child(8), td:nth-child(8),  /* Résumé des faits */
+th:nth-child(9), td:nth-child(9),  /* Articles enfreints */
+th:nth-child(10), td:nth-child(10),/* Durée totale effective radiation */
+th:nth-child(11), td:nth-child(11),/* Article amende/chef */
+th:nth-child(13), td:nth-child(13) /* Autres sanctions */
+{ width: 50ch; }
 ''' 
 
 HTML_TEMPLATE = '''
@@ -130,7 +131,7 @@ def analyze():
         table_html = html_df.to_html(index=False, escape=False)
 
         # génération Excel
-        buf =(BytesIO())
+        buf = BytesIO()
         wb = Workbook()
         ws = wb.active
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_f.columns))
@@ -153,6 +154,7 @@ def analyze():
                     cell.value = 'Résumé'
                     cell.hyperlink = val
                     cell.font = link_font
+        # largeur colonnes Excel
         for idx in range(1, len(df_f.columns)+1):
             ws.column_dimensions[get_column_letter(idx)].width = 25
         for j in [8,9,10,11,13]:
@@ -183,6 +185,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
