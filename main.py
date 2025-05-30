@@ -22,7 +22,7 @@ button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background:
 button:hover { background: #0056b3; }
 .table-container {
   width: 100%;                         /* occupe toute la largeur */
-  overflow-x: scroll;                  /* scrollbar toujours active */
+  overflow-x: auto;                   /* scrollbar toujours active */
   overflow-y: hidden;
   scrollbar-gutter: both-edges;        /* réserve l'espace pour la scrollbar */
   -webkit-overflow-scrolling: touch;   /* fluidité sur mobile */
@@ -41,7 +41,7 @@ th:nth-child(8), td:nth-child(8),
 th:nth-child(9), td:nth-child(9),
 th:nth-child(10), td:nth-child(10),
 th:nth-child(11), td:nth-child(11),
-th-child(13), td:nth-child(13) { width: 50ch; }
+th:nth-child(13), td:nth-child(13) { width: 50ch; }
 ''' 
 
 HTML_TEMPLATE = '''
@@ -187,6 +187,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
