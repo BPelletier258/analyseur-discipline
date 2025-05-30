@@ -78,7 +78,7 @@ HTML_TEMPLATE = '''
 # regex: only match when preceded by Art. or Art: or Art :
 def build_pattern(article):
     art = re.escape(article)
-    prefixes = [r'Art\.\s', r'Art:\s', r'Art\s*:\s']
+    prefixes = [r'Art\.\s', r'Art:\s', r'Art\s*:']
     pref = '|'.join(prefixes)
     return rf'(?:(?:{pref})){art}(?![0-9])'
 
@@ -187,6 +187,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
