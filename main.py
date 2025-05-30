@@ -22,8 +22,9 @@ button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background:
 button:hover { background: #0056b3; }
 .table-container {
   width: 100%;                       /* occupe toute la largeur */
-  overflow-x: scroll;               /* scrollbar horizontale toujours visible */
+  overflow-x: scroll;               /* scrollbar horizontale toujours présente */
   overflow-y: hidden;
+  scrollbar-gutter: stable both-edges; /* réserve l’espace de la scrollbar */
   -webkit-overflow-scrolling: touch; /* fluidité sur mobile */
   margin-top: 30px;
 }
@@ -77,7 +78,7 @@ HTML_TEMPLATE = '''
 # regex: only match when preceded by Art. or Art: or Art :
 def build_pattern(article):
     art = re.escape(article)
-    prefixes = [r'Art\.' + r'\s*', r'Art:' + r'\s*', r'Art' + r'\s*:' + r'\s*']
+    prefixes = [r'Art\.\s*', r'Art:\s*', r'Art\s*:\s*']
     pref = '|'.join(prefixes)
     return rf'(?:(?:{pref})){art}(?![0-9])'
 
@@ -182,6 +183,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
