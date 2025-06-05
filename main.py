@@ -83,7 +83,7 @@ def build_pattern(article):
     - où X peut contenir des points (ex. 2.04, 3.02.08, 59(1), etc.)
     - et qui n'est pas suivi immédiatement d'un chiffre (pour éviter 591 si on cherche '59').
     """
-    art_escaped = re.escape(article)  # échappe les points, parenthèses, etc.
+    art_escaped = re.escape(article)
 
     # On autorise zéro ou plusieurs espaces (normaux \s ou insécables \u00A0) autour des deux-points.
     space = r'(?:\s|\u00A0)*'
@@ -94,7 +94,6 @@ def build_pattern(article):
     ]
     pref = '|'.join(prefixes)
 
-    # Si l'article contient explicitement une parenthèse, on désactive le lookahead de chiffres
     if '(' in article:
         return rf'(?:{pref}){art_escaped}'
     else:
@@ -122,23 +121,25 @@ def analyze():
     global last_excel, last_article
 
     if request.method == 'POST':
-        # 1) Lecture du fichier Excel et construction du regex
         file    = request.files['file']
         article = request.form['article'].strip()
         last_article = article
 
-        df = pd.read_excel(file)
+        # 📅 Détection automatique de la structure d'entrée
+        # On lit les deux premières lignes pour vérifier si la première contient "Article filtré :"
+        df_preview = pd.read_excel(file, nrows=2, header=None)
+        file.seek(0)
+        if isinstance(df_preview.iloc[0,0], str) and df_preview.iloc[0,0].startswith("Article filtré :"):
+            df = pd.read_excel(file, skiprows=1, header=0)
+        else:
+            df = pd.read_excel(file, header=0)
+
         pat = build_pattern(article)
 
-        # 2) Filtrage : on ne cherche que dans la colonne "Articles enfreints"
-        #    Convertit en string pour éviter les NaN, etc.
         mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_f = df[mask].copy()
 
-        # 3) Préparation du HTML
-        html_df = df_f.fillna('')  # remplace NaN par chaîne vide pour l'affichage
-
-        # Pour chaque colonne détaillée à colorer, on entoure l'article recherché d'un <span class="highlight">
+        html_df = df_f.fillna('')
         for col in (HIGHLIGHT_COLS & set(html_df.columns)):
             html_df[col] = html_df[col].astype(str).str.replace(
                 pat,
@@ -146,25 +147,22 @@ def analyze():
                 regex=True
             )
 
-        # Si "Résumé" existe, on remplace chaque URL par un lien cliquable
         if 'Résumé' in html_df.columns:
             html_df['Résumé'] = html_df['Résumé'].apply(
-                lambda url: f'<a href="{url}" class="summary-link" target="_blank">Résumé</a>' if isinstance(url, str) and url else ''
+                lambda url: f'<a href="{url}" class="summary-link" target="_blank">Résumé</a>'
+                            if isinstance(url, str) and url else ''
             )
 
         table_html = html_df.to_html(index=False, escape=False)
 
-        # 4) Construction du fichier Excel à télécharger
         buf = BytesIO()
         wb  = Workbook()
         ws  = wb.active
 
-        # Entête fusionnée
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_f.columns))
         top_cell = ws.cell(row=1, column=1, value=f"Article filtré : {article}")
         top_cell.font = Font(size=14, bold=True)
 
-        # Ligne des noms de colonnes
         for idx, col in enumerate(df_f.columns, start=1):
             c = ws.cell(row=2, column=idx, value=col)
             c.fill      = grey_fill
@@ -172,31 +170,25 @@ def analyze():
             c.border    = border_style
             c.alignment = wrap_alignment
 
-        # Données
         for r_idx, row in enumerate(df_f.itertuples(index=False), start=3):
             for c_idx, col in enumerate(df_f.columns, start=1):
                 val = getattr(row, row._fields[c_idx-1])
 
-                # Si c'est la colonne "Résumé" et que c'est une chaîne non vide, on crée un lien
                 if col == 'Résumé' and isinstance(val, str) and val:
                     cell = ws.cell(row=r_idx, column=c_idx, value='Résumé')
                     cell.hyperlink = val
                     cell.font = link_font
                 else:
-                    # Pour toutes les autres colonnes, on colle la valeur (vide si None ou NaN)
                     cell = ws.cell(row=r_idx, column=c_idx, value=(val if val else ''))
 
                 cell.border    = border_style
                 cell.alignment = wrap_alignment
 
-                # Si c'est l'une des colonnes à surligner et que le pattern y match, on colore en rouge
                 if col in HIGHLIGHT_COLS and re.search(pat, str(val)):
                     cell.font = red_font
 
-        # Réglage des largeurs : 25ch (par défaut) ou 50ch pour les colonnes détaillées
         for i in range(1, len(df_f.columns) + 1):
             ws.column_dimensions[get_column_letter(i)].width = 25
-        # Indices 8,9,10,11,13 doivent être élargis à 50
         for j in (8, 9, 10, 11, 13):
             if j <= len(df_f.columns):
                 ws.column_dimensions[get_column_letter(j)].width = 50
@@ -205,7 +197,6 @@ def analyze():
         buf.seek(0)
         last_excel = buf.getvalue()
 
-        # Affichage du résultat HTML
         return render_template_string(
             HTML_TEMPLATE,
             style_block=STYLE_BLOCK,
@@ -213,9 +204,7 @@ def analyze():
             searched_article=article
         )
 
-    # Si GET, on affiche uniquement le formulaire
     return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
-
 
 @app.route('/download')
 def download():
@@ -228,9 +217,9 @@ def download():
         download_name=f"decisions_filtrees_{last_article}.xlsx"
     )
 
-
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
