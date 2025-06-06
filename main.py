@@ -127,12 +127,12 @@ def analyze():
 
         # 📅 Détection automatique de la structure d'entrée
         # On lit les deux premières lignes pour vérifier si la première contient "Article filtré :"
-        df_preview = pd.read_excel(file, nrows=2, header=None)
+        df_preview = pd.read_excel(file, nrows=2, header=None, engine='openpyxl')
         file.seek(0)
         if isinstance(df_preview.iloc[0,0], str) and df_preview.iloc[0,0].startswith("Article filtré :"):
-            df = pd.read_excel(file, skiprows=1, header=0)
+            df = pd.read_excel(file, skiprows=1, header=0, engine='openpyxl')
         else:
-            df = pd.read_excel(file, header=0)
+            df = pd.read_excel(file, header=0, engine='openpyxl')
 
         pat = build_pattern(article)
 
@@ -219,6 +219,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
