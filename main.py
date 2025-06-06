@@ -21,8 +21,8 @@ input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 
 button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
 button:hover { background: #0056b3; }
 .table-container {
-  width: 100%;
-  overflow-x: scroll;            /* barre horizontale toujours visible */
+  width: 100%;                       /* occupe toute la largeur */
+  overflow-x: scroll;               /* barre horizontale toujours visible */
   overflow-y: hidden;
   scrollbar-gutter: stable both-edges;
   -webkit-overflow-scrolling: touch;
@@ -34,7 +34,7 @@ th, td { border: 1px solid #888; padding: 8px; vertical-align: top; }
 th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center; }
 /* Largeur par défaut : 25ch */
 th, td { width: 25ch; }
-/* Colonnes « détaillées » en 50ch (Réservé aux indices 8,9,10,11,13) */
+/* Colonnes « détaillées » en 50ch (Indices 8,9,10,11,13) */
 th:nth-child(8), td:nth-child(8),
 th:nth-child(9), td:nth-child(9),
 th:nth-child(10), td:nth-child(10),
@@ -121,12 +121,15 @@ def analyze():
     global last_excel, last_article
 
     if request.method == 'POST':
-        file    = request.files['file']
-        article = request.form['article'].strip()
+        file    = request.files['file']        
+        article_input = request.form['article'].strip()
+        # Validation stricte du format d'article
+        if not re.match(r'^[0-9]+(?:\.\d+)*(?:\([^)]+\))?$', article_input):
+            return "Format d'article non valide. Exemple : 14, 59(2), 2.01, 3.02.08", 400
+        article = article_input
         last_article = article
 
         # 📅 Détection automatique de la structure d'entrée
-        # On lit les deux premières lignes pour vérifier si la première contient "Article filtré :"
         df_preview = pd.read_excel(file, nrows=2, header=None, engine='openpyxl')
         file.seek(0)
         if isinstance(df_preview.iloc[0,0], str) and df_preview.iloc[0,0].startswith("Article filtré :"):
@@ -219,6 +222,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
