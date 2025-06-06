@@ -123,9 +123,14 @@ def analyze():
     if request.method == 'POST':
         file    = request.files['file']        
         article_input = request.form['article'].strip()
-        # Validation stricte du format d'article
-        if not re.match(r'^[0-9]+(?:\.\d+)*(?:\([^)]+\))?$', article_input):
-            return "Format d'article non valide. Exemple : 14, 59(2), 2.01, 3.02.08", 400
+
+        # 🔒 Validation stricte du format d'article avec source optionnelle
+        # Exemple accepté : "59(2) CD", "2.01a) R15", "11 CD"
+        if not re.match(r'^[0-9]+(?:\.\d+)*(?:\([^)]*\))?(?:\s+[A-Za-z][A-Za-z0-9\.]*)?$', article_input):
+            return (
+                "Format d'article non valide. Exemple : 14, 59(2), 59(2) CD, 2.01a) R15, 11 CD",
+                400
+            )
         article = article_input
         last_article = article
 
@@ -142,7 +147,7 @@ def analyze():
         mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_f = df[mask].copy()
 
-        # Éviter les NaN dans la colonne Résumé avant l'export Excel
+        # Éviter les NaN dans la colonne "Résumé" avant l'export Excel
         if 'Résumé' in df_f.columns:
             df_f['Résumé'] = df_f['Résumé'].fillna('').astype(str)
 
@@ -226,6 +231,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
