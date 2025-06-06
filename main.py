@@ -142,6 +142,10 @@ def analyze():
         mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_f = df[mask].copy()
 
+        # Éviter les NaN dans la colonne Résumé avant l'export Excel
+        if 'Résumé' in df_f.columns:
+            df_f['Résumé'] = df_f['Résumé'].fillna('').astype(str)
+
         html_df = df_f.fillna('')
         for col in (HIGHLIGHT_COLS & set(html_df.columns)):
             html_df[col] = html_df[col].astype(str).str.replace(
@@ -222,6 +226,7 @@ def download():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
