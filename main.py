@@ -1,164 +1,155 @@
-import pandas as pd
 import re
-import unicodedata
-from flask import Flask, request, render_template
+import pandas as pd
+from flask import Flask, request, render_template_string, send_file, redirect, url_for
 from io import BytesIO
-import xlsxwriter
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
+last_excel = None
+last_article = None
 
-# Normalisation des noms de colonnes (sans accents, minuscule)
-def normalize_column(col_name):
-    if isinstance(col_name, str):
-        col_name = unicodedata.normalize('NFKD', col_name).encode('ASCII', 'ignore').decode('utf-8')
-        col_name = col_name.replace("’", "'")
-        col_name = col_name.lower()
-        col_name = re.sub(r'\s+', ' ', col_name).strip()
-    return col_name
+# Inline CSS and HTML template
+STYLE_BLOCK = '''
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background: #f5f7fa; }
+h1 { font-size: 1.65em; margin-bottom: 0.5em; color: #333; }
+.form-container { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 750px; }
+form { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
+label { font-weight: bold; font-size: 1.05em; color: #444; display: flex; flex-direction: column; }
+input[type=file], input[type=text] { padding: 0.6em; font-size: 1.05em; border: 1px solid #ccc; border-radius: 4px; }
+button { padding: 0.6em 1.2em; font-size: 1.05em; font-weight: bold; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease; }
+button:hover { background: #0056b3; }
+.table-container { width: 100%; overflow-x: scroll; overflow-y: hidden; scrollbar-gutter: stable both-edges; -webkit-overflow-scrolling: touch; margin-top: 30px; }
+table { border-collapse: collapse; width: max-content; background: #fff; display: inline-block; }
+th, td { border: 1px solid #888; padding: 8px; vertical-align: top; word-wrap: break-word; }
+th { background: #e2e3e5; font-weight: bold; font-size: 1em; text-align: center; }
+/* default width 25ch */
+th, td { width: 25ch; }
+/* detail cols 50ch */
+th:nth-child(9), td:nth-child(9),
+th:nth-child(10), td:nth-child(10),
+th:nth-child(11), td:nth-child(11),
+th:nth-child(12), td:nth-child(12),
+th:nth-child(14), td:nth-child(14) { width: 50ch; }
+.highlight { color: #d41e26; font-weight: bold; }
+.summary-link { color: #0066cc; text-decoration: underline; }
+'''
 
-# Validation stricte du format d'article, incluant source (CD, CP, R, etc.)
-def validate_article_format(article):
-    """
-    Valide qu'on a au moins :
-      - un ou plusieurs chiffres
-      - zéro ou plusieurs groupes ".nn" éventuellement suivis d'une lettre (ex. ".01a")
-      - éventuellement une parenthèse "(...)"
-      - éventuellement un espace + une source (lettres et chiffres), ex. " R15" ou " CD"
-    Exemples valides : 14, 59(2), 2.01a) R15, 3.02.08, 11 CD, 114 CP, 2.01b) R15.
-    """
-    pattern = r'''
-        ^                         # début de la chaîne
-        [0-9]+                    # un ou plusieurs chiffres
-        (?:\.[0-9]+[A-Za-z]?)*   # 0 ou plusieurs groupes ".nn" éventuellement suivis d'une lettre
-        (?:\([^)]*\))?          # éventuelle parenthèse "(...)" 
-        (?:\s+[A-Za-z0-9]+)?     # éventuel espace + source (lettres et/ou chiffres)
-        $                         # fin de la chaîne
-    '''
-    return bool(re.match(pattern, article, flags=re.VERBOSE))
+HTML_TEMPLATE = '''
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Analyse Disciplinaire</title>
+  <style>{{ style_block }}</style>
+</head>
+<body>
+  <h1>Analyse Disciplinaire</h1>
+  <div class="form-container">
+    <form method="post" enctype="multipart/form-data">
+      <label>Fichier Excel:<input type="file" name="file" required></label>
+      <label>Article à filtrer:<input type="text" name="article" placeholder="ex: 14 ou 59(2)" required></label>
+      <button type="submit">Analyser</button>
+    </form>
+  </div>
+  <hr>
+  {% if searched_article %}
+    <div><strong>Article recherché : <span class="highlight">{{ searched_article }}</span></strong></div>
+    <a href="/download">⬇️ Télécharger le fichier Excel formaté</a>
+  {% endif %}
+  {% if table_html %}
+    <div class="table-container">
+      {{ table_html|safe }}
+    </div>
+  {% endif %}
+</body>
+</html>
+'''
 
-# Applique mise en forme HTML rouge pour occurrences d'article dans une cellule
-def style_article(cell, article):
-    if not isinstance(cell, str):
-        return cell
-    # Échappe l'article, puis autorise espaces variables
-    esc = re.escape(article)
-    art_pattern = esc.replace(r'\\ ', r'\\s*')
-    prefix = r'(?:Art\.|Art:|Art\s*:)' + r'\\s*'
-    # Si parenthèse dans l'article, ne pas ajouter lookahead
+# build pattern with strict prefixes and optional source
+
+def build_pattern(article):
+    art = re.escape(article)
+    space = r'(?:\s|\u00A0)*'
+    prefixes = [r'Art\.' + space, r'Art:' + space, r'Art' + space + r':' + space]
+    pref = '|'.join(prefixes)
     if '(' in article:
-        regex = re.compile(rf"{prefix}{art_pattern}", re.IGNORECASE)
+        return rf'(?:{pref}){art}'
     else:
-        regex = re.compile(rf"{prefix}{art_pattern}(?![0-9])", re.IGNORECASE)
-    return regex.sub(lambda m: f"<span style='color:red;font-weight:bold'>{m.group(0)}</span>", cell)
+        return rf'(?:{pref}){art}(?![0-9])'
 
-@app.route('/', methods=['GET'])
-def index():
-    return render_template('index.html')
+# styles
+grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+red_font    = Font(color="FF0000")
+link_font   = Font(color="0000FF", underline="single")
+border      = Border(left=Side('thin'), right=Side('thin'), top=Side('thin'), bottom=Side('thin'))
+wrap_align  = Alignment(wrap_text=True, vertical='top')
 
-@app.route('/analyse', methods=['POST'])
-def analyse():
-    try:
-        file = request.files.get('file') or request.files.get('fichier_excel')
-        article = request.form.get('article', '').strip()
+HIGHLIGHT_COLS = {'Articles enfreints', 'Durée totale effective radiation', 'Article amende/chef', 'Autres sanctions'}
 
-        if not file or not article:
-            return render_template('index.html', erreur="Veuillez fournir un fichier Excel et un article.")
-
-        # Validation stricte du format d'article
-        if not validate_article_format(article):
-            return render_template('index.html', erreur="Format d'article non valide. Exemple : 14, 59(2), 2.01a) R15, 3.02.08")
-
-        df = pd.read_excel(file)
-        df = df.rename(columns=lambda c: normalize_column(c))
-
-        required = [
-            "articles enfreints",
-            "duree totale effective radiation",
-            "article amende/chef",
-            "autres sanctions",
-            "nom de l'intime",
-            "numero de decision"
-        ]
-        missing = [col for col in required if col not in df.columns]
-        if missing:
-            return render_template('index.html', erreur=f"Le fichier est incomplet. Colonnes manquantes : {', '.join(missing)}")
-
-        # Construction du motif strict permettant espaces variables
-        esc = re.escape(article)
-        art_pattern = esc.replace(r'\\ ', r'\\s*')
-        prefix = r'(?:Art\.|Art:|Art\s*:)' + r'\\s*'
-        if '(' in article:
-            pat_str = rf"(?:{prefix}){art_pattern}"
+@app.route('/', methods=['GET','POST'])
+def analyze():
+    global last_excel, last_article
+    if request.method == 'POST':
+        file = request.files['file']
+        art  = request.form['article'].strip()
+        # strict validation allowing source
+        if not re.match(r'^[0-9]+(?:\.[0-9]+)*(?:\([^)]+\))?(?:\s+[A-Za-z0-9]+)?$', art):
+            return "Format d'article non valide. Exemple : 14, 59(2), 2.01a) R15", 400
+        last_article = art
+        # auto header detect
+        preview = pd.read_excel(file, nrows=2, header=None, engine='openpyxl')
+        file.seek(0)
+        if isinstance(preview.iloc[0,0], str) and preview.iloc[0,0].startswith("Article filtré :"):
+            df = pd.read_excel(file, skiprows=1, header=0, engine='openpyxl')
         else:
-            pat_str = rf"(?:{prefix}){art_pattern}(?![0-9])"
-        pattern_explicit = re.compile(pat_str, re.IGNORECASE)
+            df = pd.read_excel(file, header=0, engine='openpyxl')
+        pat = build_pattern(art)
+        mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
+        df_f = df[mask].fillna('')
+        # highlight in HTML
+        for col in HIGHLIGHT_COLS & set(df_f.columns):
+            df_f[col] = df_f[col].astype(str).str.replace(pat, lambda m: f"<span class='highlight'>{m.group(0)}</span>", regex=True)
+        if 'Résumé' in df_f:
+            df_f['Résumé'] = df_f['Résumé'].apply(lambda u: f'<a href="{u}" class="summary-link" target="_blank">Résumé</a>' if u else '')
+        table_html = df_f.to_html(index=False, escape=False)
+        # Excel
+        buf = BytesIO()
+        wb = Workbook()
+        ws = wb.active
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(df_f.columns))
+        c = ws.cell(row=1, column=1, value=f"Article filtré : {art}")
+        c.font = Font(size=14, bold=True)
+        # headers
+        for i, col in enumerate(df_f.columns, start=1):
+            cell = ws.cell(row=2, column=i, value=col)
+            cell.fill, cell.font, cell.border, cell.alignment = grey_fill, Font(bold=True), border, wrap_align
+        # data
+        for r, row in enumerate(df_f.itertuples(index=False), start=3):
+            for c_idx, col in enumerate(df_f.columns, start=1):
+                val = getattr(row, col)
+                cell = ws.cell(row=r, column=c_idx, value=val)
+                cell.border, cell.alignment = border, wrap_align
+                if col in HIGHLIGHT_COLS and re.search(pat, str(val)):
+                    cell.font = red_font
+        # widths
+        for i in range(1, len(df_f.columns)+1): ws.column_dimensions[get_column_letter(i)].width = 25
+        for j in (9,10,11,12,14):
+            if j <= len(df_f.columns): ws.column_dimensions[get_column_letter(j)].width = 50
+        wb.save(buf); buf.seek(0)
+        last_excel = buf.getvalue()
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=table_html, searched_article=art)
+    return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK)
 
-        # Filtrage sur la colonne 'articles enfreints'
-        mask = df['articles enfreints'].astype(str).apply(lambda v: bool(pattern_explicit.search(v)))
-        conformes = df[mask].copy()
-
-        if conformes.empty:
-            return render_template('index.html', erreur=f"Aucun intime trouvé pour l'article {article}.")
-
-        # Colonnes pour affichage Markdown
-        md_columns = [
-            'numero de decision',
-            "nom de l'intime",
-            "articles enfreints",
-            "duree totale effective radiation",
-            "article amende/chef",
-            "autres sanctions"
-        ]
-        display_df = conformes[md_columns]
-        markdown_table = display_df.to_markdown(index=False)
-
-        # Préparation du DataFrame pour Excel
-        excel_columns = md_columns.copy()
-        if 'resume' in conformes.columns:
-            excel_columns.append('resume')
-        excel_df = conformes[excel_columns].copy()
-
-        # Appliquer coloration HTML brute pour Excel
-        for col in ["articles enfreints", "duree totale effective radiation", "article amende/chef", "autres sanctions"]:
-            excel_df[col] = excel_df[col].apply(lambda x: style_article(x, article))
-
-        # Génération du fichier Excel
-        output = BytesIO()
-        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
-        worksheet = workbook.add_worksheet('Résultats')
-
-        # Formats
-        wrap = workbook.add_format({'text_wrap': True, 'valign': 'top'})
-        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3'})
-        red_fmt = workbook.add_format({'font_color': '#FF0000', 'text_wrap': True, 'valign': 'top'})
-
-        # Écriture des en-têtes avec largeur ajustée
-        for idx, col_name in enumerate(excel_df.columns):
-            worksheet.write(0, idx, col_name, header_fmt)
-            width = 60 if 2 <= idx <= 5 else 30
-            worksheet.set_column(idx, idx, width)
-
-        # Écriture des données, coloration selon motif sur texte normalisé
-        for r, row in enumerate(excel_df.itertuples(index=False), start=1):
-            for c, val in enumerate(row):
-                txt = '' if pd.isna(val) else str(val)
-                plain = unicodedata.normalize('NFKD', re.sub(r'<[^>]+>', '', txt))
-                if pattern_explicit.search(plain):
-                    worksheet.write(r, c, txt, red_fmt)
-                else:
-                    worksheet.write(r, c, txt, wrap)
-
-        workbook.close()
-        output.seek(0)
-        excel_data = output.read()
-
-        return render_template('resultats.html', table_markdown=markdown_table, fichier_excel=excel_data, filename=f"resultats_article_{article}.xlsx")
-
-    except Exception as e:
-        return render_template('index.html', erreur=str(e))
+@app.route('/download')
+def download():
+    if not last_excel or not last_article: return redirect(url_for('analyze'))
+    return send_file(BytesIO(last_excel), as_attachment=True, download_name=f"decisions_filtrees_{last_article}.xlsx")
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
