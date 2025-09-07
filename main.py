@@ -110,10 +110,10 @@ wrap_alignment = Alignment(wrap_text=True, vertical='top')
 
 # Colonnes à mettre en rouge dans le HTML et Excel (si l'article y est présent)
 HIGHLIGHT_COLS = {
-    'Articles enfreints',
-    'Durée totale effective radiation',
-    'Article amende/chef',
-    'Autres sanctions'
+    'Nbr Chefs par articles',
+    'Nbr Chefs par articles par période de radiation',
+    'Nombre de chefs par articles et total amendes',
+    'Nombre de chefs par article ayant une réprimande'
 }
 
 @app.route('/', methods=['GET','POST'])
