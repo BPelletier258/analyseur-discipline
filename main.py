@@ -58,9 +58,9 @@ HTML_TEMPLATE = """
     <label>Article à rechercher (ex. <span class="kbd">29</span>, <span class="kbd">59(2)</span>)</label>
     <input type="text" name="article" value="{{ searched_article or '' }}" required placeholder="ex.: 29 ou 59(2)" />
     <label>Fichier Excel</label>
-    <input type="file" name="file" accept=".xlsx,.xls" required />
+    <input type="file" name="file" accept=".xlsx,.xlsm" required />
     <button type="submit">Analyser</button>
-    <div class="hint">Formats : .xlsx / .xls</div>
+    <div class="hint">Formats : .xlsx / .xlsm</div>
   </form>
 
   {% if table_html %}
@@ -164,7 +164,7 @@ def resolve_columns(df: pd.DataFrame) -> Dict[str, Optional[str]]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def read_excel_respecting_header_rule(file_stream) -> pd.DataFrame:
-    df_preview = pd.read_excel(file_stream, header=None, nrows=2)
+    df_preview = pd.read_excel(file_stream, header=None, nrows=2, engine="openpyxl")
     file_stream.seek(0)
 
     first_cell = df_preview.iloc[0, 0] if not df_preview.empty else None
@@ -174,9 +174,9 @@ def read_excel_respecting_header_rule(file_stream) -> pd.DataFrame:
             is_first_row_banner = True
 
     if is_first_row_banner:
-        df = pd.read_excel(file_stream, skiprows=1, header=0)
+        df = pd.read_excel(file_stream, skiprows=1, header=0, engine="openpyxl")
     else:
-        df = pd.read_excel(file_stream, header=0)
+        df = pd.read_excel(file_stream, header=0, engine="openpyxl")
 
     return df
 
@@ -270,6 +270,21 @@ def analyze():
             table_html=None,
             searched_article=article,
             message="Erreur : fichier et article sont requis.",
+            message_ok=False
+        )
+
+    # Validation de l'extension : uniquement .xlsx et .xlsm pris en charge (openpyxl)
+    fname = (file.filename or "").lower()
+    if not (fname.endswith(".xlsx") or fname.endswith(".xlsm")):
+        return render_template_string(
+            HTML_TEMPLATE,
+            style_block=STYLE_BLOCK,
+            table_html=None,
+            searched_article=article,
+            message=(
+                "Format non pris en charge : " + (file.filename or "").split(".")[-1] + ". "
+                "Veuillez fournir un classeur Excel .xlsx ou .xlsm. Les fichiers .xls (Excel 97-2003) ne sont pas supportés."
+            ),
             message_ok=False
         )
 
@@ -372,6 +387,7 @@ def download():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
 
 
