@@ -136,7 +136,7 @@ def analyze():
 
         pat = build_pattern(article)
 
-        mask = df['Articles enfreints'].astype(str).apply(lambda v: bool(re.search(pat, v)))
+        mask = df['Nbr Chefs par articles'].astype(str).apply(lambda v: bool(re.search(pat, v)))
         df_f = df[mask].copy()
 
         html_df = df_f.fillna('')
