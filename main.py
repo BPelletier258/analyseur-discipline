@@ -1,11 +1,12 @@
-# main.py (MAJ titres de colonnes)
+# # main.py — version visible + motif strict + support .xlsm
 # - Normalisation des en-têtes (accents, casse, espaces insécables)
-# - Aliases mis à jour pour les NOUVEAUX titres demandés
-# - Règle « Article filtré : » tolérante
-# - Recherche EXACTE de l’article
-# - Extraction nettoyée dans 4 colonnes clés
+# - Aliases mis à jour pour les nouveaux titres
+# - Règle « Article filtré : » tolérante (ignore la 1re ligne si elle commence par ce libellé)
+# - Recherche EXACTE de l’article (motif strict : évite 2016 pour 16, 29.1 pour 29, gère 59(2))
+# - Extraction nettoyée (gestion puces/NBSP/retours)
+# - Prise en charge .xlsx et .xlsm (openpyxl)
+# - Estampille de version en pied de page + endpoint /version
 
-import io
 import os
 import re
 import time
@@ -14,10 +15,30 @@ from datetime import datetime
 from typing import Dict, Optional, Set
 
 import pandas as pd
-from flask import Flask, request, render_template_string, send_file
+from flask import Flask, request, render_template_string, send_file, jsonify
 
+# ──────────────────────────────────────────────────────────────────────────────
+# App & estampille de version
+# ──────────────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
+STARTED_AT = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+APP_VERSION = (
+    os.environ.get("RENDER_GIT_COMMIT")
+    or os.environ.get("GIT_COMMIT")
+    or os.environ.get("SOURCE_VERSION")
+    or datetime.utcnow().strftime("dev-%Y%m%d-%H%M%S")
+)
+APP_VERSION_SHORT = (APP_VERSION or "")[0:7]
+
+# Variables disponibles dans tous les templates
+@app.context_processor
+def inject_globals():
+    return dict(app_version=APP_VERSION, app_version_short=APP_VERSION_SHORT, started_at=STARTED_AT)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# UI (template + styles)
+# ──────────────────────────────────────────────────────────────────────────────
 STYLE_BLOCK = """
 <style>
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; }
@@ -36,6 +57,7 @@ STYLE_BLOCK = """
   .err { color: #7f1d1d; }
   .download { margin: 12px 0; }
   .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#f3f4f6; padding:2px 4px; border-radius:4px; }
+  footer { margin-top: 18px; font-size: 12px; color: #6b7280; }
 </style>
 """
 
@@ -58,9 +80,9 @@ HTML_TEMPLATE = """
     <label>Article à rechercher (ex. <span class="kbd">29</span>, <span class="kbd">59(2)</span>)</label>
     <input type="text" name="article" value="{{ searched_article or '' }}" required placeholder="ex.: 29 ou 59(2)" />
     <label>Fichier Excel</label>
-    <input type="file" name="file" accept=".xlsx,.xls" required />
+    <input type="file" name="file" accept=".xlsx,.xlsm" required />
     <button type="submit">Analyser</button>
-    <div class="hint">Formats : .xlsx / .xls</div>
+    <div class="hint">Formats : .xlsx / .xlsm</div>
   </form>
 
   {% if table_html %}
@@ -73,6 +95,10 @@ HTML_TEMPLATE = """
   {% if message %}
     <div class="msg {{ 'ok' if message_ok else 'err' }}">{{ message }}</div>
   {% endif %}
+
+  <footer>
+    Version: <strong>{{ app_version_short }}</strong> ({{ app_version }}) • Démarré: {{ started_at }} • <a href="/version">/version</a>
+  </footer>
 </body>
 </html>
 """
@@ -90,45 +116,39 @@ def _norm(s: str) -> str:
     s = " ".join(s.strip().lower().split())
     return s
 
-# Colonnes canoniques utilisées par l’app
-# (nous conservons les mêmes canons pour ne pas toucher au cœur du code)
-# NoUVEAUX titres = ajoutés en tête de chaque set d’alias
+# Colonnes canoniques (nouveaux titres + anciens en alias)
 HEADER_ALIASES: Dict[str, Set[str]] = {
     # EX-« Articles enfreints » → NOUVEAU « Nbr Chefs par articles »
     "articles_enfreints": {
-        _norm("Nbr Chefs par articles"),          # NOUVEAU
-        _norm("Articles enfreints"),              # ancien
+        _norm("Nbr Chefs par articles"),
+        _norm("Articles enfreints"),
         _norm("Articles en infraction"),
         _norm("Liste des chefs et articles en infraction"),
-        _norm("Nbr   Chefs   par    articles"),   # tolérance espaces
+        _norm("Nbr   Chefs   par    articles"),
     },
     # EX-« Durée totale effective radiation » → NOUVEAU « Nbr Chefs par articles par période de radiation »
     "duree_totale_radiation": {
-        _norm("Nbr Chefs par articles par période de radiation"),  # NOUVEAU
-        _norm("Nbr Chefs par articles par periode de radiation"),  # sans accent
-        _norm("Durée totale effective radiation"),                 # ancien
-        _norm("Duree totale effective radiation"),                 # ancien sans accents
+        _norm("Nbr Chefs par articles par période de radiation"),
+        _norm("Nbr Chefs par articles par periode de radiation"),
+        _norm("Durée totale effective radiation"),
+        _norm("Duree totale effective radiation"),
     },
     # EX-« Article amende/chef » → NOUVEAU « Nombre de chefs par articles et total amendes »
     "article_amende_chef": {
-        _norm("Nombre de chefs par articles et total amendes"),    # NOUVEAU
-        _norm("Article amende/chef"),                               # ancien
+        _norm("Nombre de chefs par articles et total amendes"),
+        _norm("Article amende/chef"),
         _norm("Articles amende / chef"),
         _norm("Amendes (article/chef)"),
     },
     # EX-« Autres sanctions » → NOUVEAU « Nombre de chefs par article ayant une réprimande »
     "autres_sanctions": {
-        _norm("Nombre de chefs par article ayant une réprimande"), # NOUVEAU
-        _norm("Nombre de chefs par article ayant une reprimande"), # sans accent
-        _norm("Autres sanctions"),                                  # ancien
+        _norm("Nombre de chefs par article ayant une réprimande"),
+        _norm("Nombre de chefs par article ayant une reprimande"),
+        _norm("Autres sanctions"),
         _norm("Autres mesures ordonnées"),
         _norm("Autres sanctions / mesures"),
     },
-    # Colonne utilisée ailleurs dans vos tableaux (exemples courants)
-    "nbr_chefs_par_articles": {  # utile si vous référencez encore cet intitulé quelque part
-        _norm("Nbr Chefs par articles"),
-        _norm("Nombre de chefs par articles"),
-    },
+    # Exemples supplémentaires utiles
     "numero_decision": {
         _norm("Numéro de décision"), _norm("Numero de decision"), _norm("No decision"), _norm("Decision #")
     },
@@ -137,7 +157,6 @@ HEADER_ALIASES: Dict[str, Set[str]] = {
     },
 }
 
-# Colonnes canoniques à traiter pour le filtrage / nettoyage
 FILTER_CANONICAL = [
     "articles_enfreints",
     "duree_totale_radiation",
@@ -164,35 +183,55 @@ def resolve_columns(df: pd.DataFrame) -> Dict[str, Optional[str]]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def read_excel_respecting_header_rule(file_stream) -> pd.DataFrame:
-    df_preview = pd.read_excel(file_stream, header=None, nrows=2)
+    df_preview = pd.read_excel(file_stream, header=None, nrows=2, engine="openpyxl")
     file_stream.seek(0)
 
     first_cell = df_preview.iloc[0, 0] if not df_preview.empty else None
-    is_first_row_banner = False
-    if isinstance(first_cell, str):
-        if _norm(first_cell).startswith(_norm("Article filtré :")):
-            is_first_row_banner = True
+    banner = isinstance(first_cell, str) and _norm(first_cell).startswith(_norm("Article filtré :"))
 
-    if is_first_row_banner:
-        df = pd.read_excel(file_stream, skiprows=1, header=0)
+    if banner:
+        df = pd.read_excel(file_stream, skiprows=1, header=0, engine="openpyxl")
     else:
-        df = pd.read_excel(file_stream, header=0)
-
+        df = pd.read_excel(file_stream, header=0, engine="openpyxl")
     return df
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Motif exact pour l’article
+# Motif exact pour l’article (strict et tolérant)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def build_article_pattern(user_input: str) -> re.Pattern:
+    """
+    - Préfixe Art/Article optionnel (avec ou sans « : »)
+    - Si le token se termine par un chiffre → interdit chiffre/point juste après (évite 29.1)
+    - Interdit chiffre/point juste avant (évite 2016 pour 16)
+    - Pas de \b en fin si le token finit par un caractère non-digit (ex. 59(2))
+    """
     token = (user_input or "").strip()
     if not token:
         raise ValueError("Article vide.")
+    token = token.replace("\u00A0", " ").replace("\u202F", " ")
+    token = " ".join(token.split())
+
     esc = re.escape(token)
     ends_with_digit = token[-1].isdigit()
-    tail = r"(?![\d.])" if ends_with_digit else r"\b"
-    pattern = rf"(?:\b(?:art(?:icle)?\s*[: ]*)?)({esc}){tail}"
+    right_tail = r"(?![\d.])" if ends_with_digit else r""
+    left_guard = r"(?<![\d.])"
+
+    pattern = rf"(?:\b(?:art(?:icle)?\s*[: ]*)?){left_guard}({esc}){right_tail}"
     return re.compile(pattern, flags=re.IGNORECASE)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pré-traitement texte des cellules (puces, NBSP, CR/LF, espaces)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _prep_text(v: str) -> str:
+    if not isinstance(v, str):
+        v = "" if v is None else str(v)
+    v = v.replace("•", " ").replace("·", " ").replace("◦", " ")
+    v = v.replace("\u00A0", " ").replace("\u202F", " ")
+    v = v.replace("\r\n", "\n").replace("\r", "\n")
+    v = " ".join(v.split())
+    return v
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Extraction nettoyée dans les cellules
@@ -223,9 +262,9 @@ def clean_filtered_df(df: pd.DataFrame, colmap: Dict[str, Optional[str]], pat: r
         if not col or col not in df.columns:
             continue
         if canon == "autres_sanctions":
-            df[col] = df[col].apply(lambda v: extract_mentions_autres_sanctions(v, pat))
+            df[col] = df[col].apply(lambda v: extract_mentions_autres_sanctions(_prep_text(v), pat))
         else:
-            df[col] = df[col].apply(lambda v: extract_mentions_generic(v, pat))
+            df[col] = df[col].apply(lambda v: extract_mentions_generic(_prep_text(v), pat))
     subset_cols = [c for c in (colmap.get(k) for k in FILTER_CANONICAL) if c]
     if subset_cols:
         mask_any = False
@@ -270,7 +309,22 @@ def analyze():
             table_html=None,
             searched_article=article,
             message="Erreur : fichier et article sont requis.",
-            message_ok=False
+            message_ok=False,
+        )
+
+    # Validation : uniquement .xlsx et .xlsm pris en charge (openpyxl)
+    fname = (file.filename or "").lower()
+    if not (fname.endswith(".xlsx") or fname.endswith(".xlsm")):
+        return render_template_string(
+            HTML_TEMPLATE,
+            style_block=STYLE_BLOCK,
+            table_html=None,
+            searched_article=article,
+            message=(
+                "Format non pris en charge : " + (file.filename or "").split(".")[-1] + ". "
+                "Veuillez fournir un classeur Excel .xlsx ou .xlsm. Les fichiers .xls (Excel 97-2003) ne sont pas supportés."
+            ),
+            message_ok=False,
         )
 
     try:
@@ -284,7 +338,7 @@ def analyze():
             col = colmap.get(canon)
             if col and col in df.columns:
                 any_cols = True
-                masks.append(df[col].astype(str).apply(lambda v: bool(pat.search(v))))
+                masks.append(df[col].astype(str).apply(lambda v: bool(pat.search(_prep_text(v)))))
         if not any_cols:
             detail = "\n".join([f"  - {k}: {colmap.get(k)}" for k in FILTER_CANONICAL])
             return render_template_string(
@@ -295,7 +349,7 @@ def analyze():
                 message=("Erreur : aucune des colonnes attendues n’a été trouvée dans le fichier.\n"
                          "Vérifiez les en-têtes ou ajoutez des alias dans le code.\n\n"
                          f"Colonnes résolues :\n{detail}\n\nColonnes disponibles :\n{list(df.columns)}"),
-                message_ok=False
+                message_ok=False,
             )
 
         if not masks:
@@ -305,7 +359,7 @@ def analyze():
                 table_html=None,
                 searched_article=article,
                 message="Aucune colonne exploitable pour le filtrage.",
-                message_ok=False
+                message_ok=False,
             )
 
         mask_any = masks[0]
@@ -321,7 +375,7 @@ def analyze():
                 table_html=None,
                 searched_article=article,
                 message=f"Aucune ligne ne contient l’article « {article} » dans les colonnes cibles.",
-                message_ok=True
+                message_ok=True,
             )
 
         df_clean = clean_filtered_df(df_filtered, colmap, pat)
@@ -334,7 +388,7 @@ def analyze():
                 searched_article=article,
                 message=("Des lignes correspondaient au motif, mais après épuration des cellules, "
                          "aucune mention nette de l’article n’a été conservée."),
-                message_ok=True
+                message_ok=True,
             )
 
         download_url = to_excel_download(df_clean)
@@ -348,7 +402,7 @@ def analyze():
             searched_article=article,
             download_url=download_url,
             message=f"{len(df_clean)} ligne(s) après filtrage et épuration. (Aperçu limité à 200 lignes.)",
-            message_ok=True
+            message_ok=True,
         )
 
     except Exception as e:
@@ -358,7 +412,7 @@ def analyze():
             table_html=None,
             searched_article=article,
             message=f"Erreur inattendue : {repr(e)}",
-            message_ok=False
+            message_ok=False,
         )
 
 
@@ -370,8 +424,23 @@ def download():
     return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
 
+@app.route("/version")
+def version():
+    return jsonify({
+        "version": APP_VERSION,
+        "version_short": APP_VERSION_SHORT,
+        "started_at": STARTED_AT,
+        "time_utc": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+    })
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+
+
+
+
 
 
 
