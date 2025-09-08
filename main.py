@@ -7,7 +7,7 @@ import re
 import time
 import unicodedata
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file, jsonify
@@ -84,7 +84,7 @@ HTML_TEMPLATE = """
   {% endif %}
 
   <footer>
-    Version: <strong>{{ app_version_short }}</strong> ({{ app_version }}) • Démarré: {{ started_at }} • <a href="/version">/version</a>
+    Version: <strong>{{ app_version_short }}</strong> ({{ app_version }}) • Démarré: {{ started_at }} • <a href="/version">/version</a> • <a href="/health">/health</a>
   </footer>
 </body>
 </html>
@@ -369,8 +369,16 @@ def version():
     })
 
 
+@app.route("/health", methods=["GET", "HEAD"])
+def health():
+    return jsonify(status="ok", version=APP_VERSION_SHORT, started_at=STARTED_AT,
+                   time_utc=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")), 200
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)) )
+
+
 
 
 
