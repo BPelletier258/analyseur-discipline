@@ -1,3 +1,8 @@
+# === CANVAS META =============================================================
+# Fichier : main.py — version + motif corrigé + diagnostics (09-08)
+# Canvas-Stamp : 2025-09-08T15:45Z
+# Cible déployée (SHA court, cf. pied de page / /version) : b4ebb8e
+# ============================================================================
 # main.py (MAJ titres de colonnes)
 # - Normalisation des en-têtes (accents, casse, espaces insécables)
 # - Aliases mis à jour pour les NOUVEAUX titres demandés
@@ -405,5 +410,6 @@ def download():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
 
