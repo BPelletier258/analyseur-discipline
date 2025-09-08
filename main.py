@@ -206,20 +206,20 @@ def build_article_pattern(user_input: str) -> re.Pattern:
     return re.compile(pattern, flags=re.IGNORECASE)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Pré-traitement texte pour recherche (gère puces, NBSP, 
-, etc.)
+# Pré-traitement texte pour recherche (gère puces, NBSP, etc.)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def _prep_text(v: str) -> str:
     if not isinstance(v, str):
         v = "" if v is None else str(v)
-    v = v.replace("•", " ").replace("·", " ").replace("◦", " ")
-    v = v.replace(" ", " ").replace(" ", " ")
-    v = v.replace("
-", "
-").replace("
-", "
-")
+    # Puces / points divers (version Unicode, plus robuste à l'encodage)
+    v = v.replace("\u2022", " ").replace("\u00B7", " ").replace("\u25E6", " ")
+    # Espaces insécables
+    v = v.replace("\u00A0", " ").replace("\u202F", " ")
+    # Normalisation des retours chariot (Windows/Mac -> \n)
+    v = v.replace(chr(13) + chr(10), "\n").replace(chr(13), "\n")
+    # Collapse espaces multiples
     v = " ".join(v.split())
     return v
 
