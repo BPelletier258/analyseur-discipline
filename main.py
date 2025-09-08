@@ -1,5 +1,5 @@
 # === CANVAS META =============================================================
-# Fichier : main.py — version + motif corrigé + diagnostics (09-08)
+# Fichier : main.py — alias ordonnés + multi‑colonnes + diagnostics
 # ============================================================================
 
 import os
@@ -7,7 +7,7 @@ import re
 import time
 import unicodedata
 from datetime import datetime
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional
 
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file, jsonify
@@ -47,8 +47,7 @@ STYLE_BLOCK = """
   th,td{border:1px solid #ddd;padding:6px 8px;vertical-align:top}
   th{background:#f3f4f6}
   .msg{margin-top:12px;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
-  .ok{color:#065f46}
-  .err{color:#7f1d1d}
+  .ok{color:#065f46}.err{color:#7f1d1d}
   .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#f3f4f6;padding:2px 4px;border-radius:4px}
   footer{margin-top:18px;font-size:12px;color:#6b7280}
 </style>
@@ -92,7 +91,7 @@ HTML_TEMPLATE = """
 """
 
 # ----------------------------------------------------------------------------
-# Normalisation & alias d’en-têtes
+# Normalisation & alias d’en‑têtes (ORDONNÉS)
 # ----------------------------------------------------------------------------
 
 def _norm(s: str) -> str:
@@ -103,30 +102,32 @@ def _norm(s: str) -> str:
     s = " ".join(s.strip().lower().split())
     return s
 
-HEADER_ALIASES: Dict[str, Set[str]] = {
-    "articles_enfreints": {
+# IMPORTANT : listes (et non sets) pour respecter la PRIORITÉ
+HEADER_ALIASES: Dict[str, List[str]] = {
+    # 1) Nouvelles appellations d’abord
+    "articles_enfreints": [
         _norm("Nbr Chefs par articles"),
         _norm("Articles enfreints"),
+        _norm("Articles en infraction"),
         _norm("Liste des chefs et articles en infraction"),
-    },
-    "duree_totale_radiation": {
+    ],
+    "duree_totale_radiation": [
         _norm("Nbr Chefs par articles par période de radiation"),
         _norm("Nbr Chefs par articles par periode de radiation"),
         _norm("Durée totale effective radiation"),
         _norm("Duree totale effective radiation"),
-    },
-    "article_amende_chef": {
+    ],
+    "article_amende_chef": [
         _norm("Nombre de chefs par articles et total amendes"),
         _norm("Article amende/chef"),
-    },
-    "autres_sanctions": {
+    ],
+    "autres_sanctions": [
         _norm("Nombre de chefs par article ayant une réprimande"),
         _norm("Nombre de chefs par article ayant une reprimande"),
         _norm("Autres sanctions"),
-    },
+    ],
 }
 
-# Seules ces 4 colonnes sont scannées
 FILTER_CANONICAL = [
     "articles_enfreints",
     "duree_totale_radiation",
@@ -135,16 +136,16 @@ FILTER_CANONICAL = [
 ]
 
 
-def resolve_columns(df: pd.DataFrame) -> Dict[str, Optional[str]]:
+def resolve_columns(df: pd.DataFrame) -> Dict[str, List[str]]:
+    """Retourne pour chaque canonique *toutes* les colonnes présentes (ordre prioritaire)."""
     norm_to_original = {_norm(c): c for c in df.columns}
-    resolved: Dict[str, Optional[str]] = {}
-    for canon, variants in HEADER_ALIASES.items():
-        hit = None
-        for v in variants:
-            if v in norm_to_original:
-                hit = norm_to_original[v]
-                break
-        resolved[canon] = hit
+    resolved: Dict[str, List[str]] = {}
+    for canon, ordered_aliases in HEADER_ALIASES.items():
+        hits: List[str] = []
+        for alias in ordered_aliases:
+            if alias in norm_to_original:
+                hits.append(norm_to_original[alias])
+        resolved[canon] = hits
     return resolved
 
 # ----------------------------------------------------------------------------
@@ -161,14 +162,10 @@ def read_excel_respecting_header_rule(file_stream) -> pd.DataFrame:
     return pd.read_excel(file_stream, header=0, engine="openpyxl")
 
 # ----------------------------------------------------------------------------
-# Motif exact pour l’article
+# Motif exact pour l’article (strict MAIS tolérant)
 # ----------------------------------------------------------------------------
 
 def build_article_pattern(user_input: str) -> re.Pattern:
-    """
-    Préfixe Art/Article optionnel; garde-fous anti-faux-positifs (2016≠16, 29.1≠29);
-    accepte 59(2); pas de \b obligatoire si « Art » n’est pas présent.
-    """
     token = (user_input or "").strip()
     if not token:
         raise ValueError("Article vide.")
@@ -177,25 +174,20 @@ def build_article_pattern(user_input: str) -> re.Pattern:
 
     esc = re.escape(token)
     ends_with_digit = token[-1].isdigit()
-    right_tail = r"(?![\d.])" if ends_with_digit else r""
-    left_guard = r"(?<![\d.])"
-    pattern = rf"(?:\\bart(?:icle)?\\s*[: ]*)?{left_guard}({esc}){right_tail}"
-    return re.compile(pattern, flags=re.IGNORECASE)
+    right_tail = r"(?![\d.])" if ends_with_digit else r"\b"
+    left_guard = r"(?<![\d.])"  # évite 2016→16
+    return re.compile(rf"(?:\\bart(?:icle)?\\s*[: ]*)?{left_guard}({esc}){right_tail}", re.IGNORECASE)
 
 # ----------------------------------------------------------------------------
-# Pré-traitement texte (puces, NBSP, sauts de ligne)
+# Pré‑traitement texte (puces, NBSP, CR/LF robuste)
 # ----------------------------------------------------------------------------
 
 def _prep_text(v: str) -> str:
     if not isinstance(v, str):
         v = "" if v is None else str(v)
-    # puces
     v = v.replace("•", " ").replace("·", " ").replace("◦", " ")
-    # espaces insécables
     v = v.replace("\u00A0", " ").replace("\u202F", " ")
-    # fins de ligne robustes
-    v = v.replace(chr(13) + chr(10), "\n").replace(chr(13), "\n")
-    # espaces compressés
+    v = v.replace(chr(13)+chr(10), "\n").replace(chr(13), "\n")
     v = " ".join(v.split())
     return v
 
@@ -221,20 +213,20 @@ def extract_mentions_autres_sanctions(text: str, pat: re.Pattern) -> str:
     return " | ".join(candidates)
 
 
-def clean_filtered_df(df: pd.DataFrame, colmap: Dict[str, Optional[str]], pat: re.Pattern) -> pd.DataFrame:
+def clean_filtered_df(df: pd.DataFrame, colmap: Dict[str, List[str]], pat: re.Pattern) -> pd.DataFrame:
     df = df.copy()
+    all_present_cols: List[str] = []
     for canon in FILTER_CANONICAL:
-        col = colmap.get(canon)
-        if not col or col not in df.columns:
-            continue
-        if canon == "autres_sanctions":
-            df[col] = df[col].apply(lambda v: extract_mentions_autres_sanctions(_prep_text(v), pat))
-        else:
-            df[col] = df[col].apply(lambda v: extract_mentions_generic(_prep_text(v), pat))
-    subset_cols = [c for c in (colmap.get(k) for k in FILTER_CANONICAL) if c]
-    if subset_cols:
+        cols = [c for c in colmap.get(canon, []) if c in df.columns]
+        all_present_cols.extend(cols)
+        for col in cols:
+            if canon == "autres_sanctions":
+                df[col] = df[col].apply(lambda v: extract_mentions_autres_sanctions(_prep_text(v), pat))
+            else:
+                df[col] = df[col].apply(lambda v: extract_mentions_generic(_prep_text(v), pat))
+    if all_present_cols:
         mask_any = False
-        for c in subset_cols:
+        for c in all_present_cols:
             cur = df[c].astype(str).str.strip().ne("")
             mask_any = cur if mask_any is False else (mask_any | cur)
         df = df[mask_any]
@@ -269,10 +261,9 @@ def analyze():
     article = (request.form.get("article") or "").strip()
 
     if not file or not article:
-        return render_template_string(
-            HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=None,
-            searched_article=article, message="Erreur : fichier et article sont requis.", message_ok=False
-        )
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=None,
+                                      searched_article=article, message="Erreur : fichier et article sont requis.",
+                                      message_ok=False)
 
     fname = (file.filename or "").lower()
     if not (fname.endswith(".xlsx") or fname.endswith(".xlsm")):
@@ -288,13 +279,12 @@ def analyze():
         colmap = resolve_columns(df)
         pat = build_article_pattern(article)
 
-        # Diagnostics
+        # Diagnostics : on SCANNE toutes les colonnes trouvées pour chaque canon
         counts = []
         masks = []
         any_cols = False
         for canon in FILTER_CANONICAL:
-            col = colmap.get(canon)
-            if col and col in df.columns:
+            for col in [c for c in colmap.get(canon, []) if c in df.columns]:
                 any_cols = True
                 m = df[col].astype(str).apply(lambda v: bool(pat.search(_prep_text(v))))
                 masks.append(m)
@@ -305,7 +295,7 @@ def analyze():
             return render_template_string(
                 HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=None, searched_article=article,
                 message=("Erreur : aucune des colonnes attendues n’a été trouvée dans le fichier.\n"
-                         "Vérifiez les en-têtes.\n\n"
+                         "Vérifiez les en‑têtes.\n\n"
                          f"Colonnes résolues :\n{detail}\n\nColonnes disponibles :\n{list(df.columns)}"),
                 message_ok=False
             )
@@ -381,6 +371,7 @@ def version():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
 
 
