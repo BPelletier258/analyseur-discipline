@@ -189,19 +189,24 @@ def read_excel_respecting_header_rule(file_stream) -> pd.DataFrame:
 # Motif exact pour l’article
 # ──────────────────────────────────────────────────────────────────────────────
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Motif exact pour l’article
+# ──────────────────────────────────────────────────────────────────────────────
 def build_article_pattern(user_input: str) -> re.Pattern:
     token = (user_input or "").strip()
     if not token:
         raise ValueError("Article vide.")
+    token = token.replace("\u00A0", " ").replace("\u202F", " ")
+    token = " ".join(token.split())
     esc = re.escape(token)
     ends_with_digit = token[-1].isdigit()
-    tail = r"(?![\d.])" if ends_with_digit else r"\b"
-    pattern = rf"(?:\b(?:art(?:icle)?\s*[: ]*)?)({esc}){tail}"
+    right_tail = r"(?![\d.])" if ends_with_digit else r""
+    left_guard = r"(?<![\d.])"
+    pattern = rf"(?:\bart(?:icle)?\s*[: ]*)?{left_guard}({esc}){right_tail}"
     return re.compile(pattern, flags=re.IGNORECASE)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Pré-traitement texte pour recherche (gère puces, NBSP, 
-, etc.)
+# Pré-traitement texte pour recherche (gère puces, NBSP, etc.)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _prep_text(v: str) -> str:
