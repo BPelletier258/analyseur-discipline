@@ -1,55 +1,51 @@
-# === main.py — 2025-09-09 ===========================================
-# - En-têtes centrés
-# - Puce uniquement si contenu, sinon tiret — (sans puce)
-# - Option "isoler segments" via case à cocher
-# - Mise en évidence (rouge) de l'article dans 5 colonnes
-# - Export Excel propre (sans HTML)
-# ====================================================================
+# === CANVAS META =============================================================
+# Fichier : main.py — version listes + surlignage + anti-"nan"
+# ============================================================================
 
 import os
 import re
 import time
 import unicodedata
-from typing import Dict, Optional, Set, List
+from typing import Dict, Optional, Set
 
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file
-from html import escape as html_escape
 
 app = Flask(__name__)
 
-# ─────────────────────────────────────────────────────────────────────
-# Styles & Page
-# ─────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# STYLE + PAGE
+# ──────────────────────────────────────────────────────────────────────────────
 
 STYLE_BLOCK = """
 <style>
-  :root { --hit:#c62828; }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; }
-  h1 { font-size: 20px; margin-bottom: 12px; }
-  form { display: grid; gap: 10px; margin-bottom: 14px; align-items: start; }
-  input[type="text"] { padding: 8px; font-size: 14px; }
-  input[type="file"] { font-size: 14px; }
-  button { padding: 8px 12px; font-size: 14px; cursor: pointer; }
-  label.inline { display:flex; gap:.55rem; align-items:center; font-size: 14px; }
-  .hint { font-size: 12px; color: #666; }
-  .note { background: #fff6e5; border: 1px solid #ffd89b; padding: 8px 10px; border-radius: 6px; margin: 10px 0 14px; }
-  .download { margin: 12px 0; }
+  :root{
+    --fg:#111827; --muted:#6b7280; --line:#e5e7eb; --soft:#f3f4f6; --brand:#0f766e; --danger:#b91c1c;
+  }
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px;color:var(--fg)}
+  h1{font-size:20px;margin:0 0 12px}
+  form{display:grid;gap:10px;margin:0 0 14px}
+  input[type="text"]{padding:8px;border:1px solid var(--line);border-radius:6px;font-size:14px}
+  input[type="file"]{font-size:14px}
+  label{font-weight:600}
+  button{padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer}
+  .hint{font-size:12px;color:var(--muted)}
+  .note{background:#fff7ed;border:1px solid #fed7aa;padding:10px;border-radius:8px;margin:10px 0 14px}
+  .download{margin:12px 0}
+  .kbd{font-family:ui-monospace,Menlo,monospace;background:var(--soft);padding:2px 4px;border-radius:4px}
+  .msg{margin-top:12px;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  .ok{color:#065f46}.err{color:#7f1d1d}
 
-  .table-viewport{height:60vh; overflow:auto; border:1px solid #ddd; border-radius:6px;}
-  .table-wide{min-width:200vw;}
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
-  th { background: #f3f4f6; text-align:center; }
-  .msg { margin-top: 12px; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-  .ok { color: #065f46; }
-  .err { color: #7f1d1d; }
+  /* Vue avec barre de défilement horizontale si besoin */
+  .table-viewport{height:60vh;overflow:auto;border:1px solid var(--line)}
+  .table-wide{min-width:200vw}
 
-  /* contenu des cellules listées */
-  td ul { margin: 0; padding-left: 1.1rem; }
-  td li { margin: .12rem 0; }
-  .hit { color: var(--hit); font-weight: 600; }
-  .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background:#f3f4f6; padding:2px 4px; border-radius:4px; }
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border:1px solid var(--line);padding:6px 8px;vertical-align:top}
+  th{background:var(--soft);text-align:center}  /* TITRES CENTRÉS */
+  td{text-align:left}
+  ul.clean{margin:0;padding-left:18px}
+  .hl{color:var(--danger);font-weight:600}
 </style>
 """
 
@@ -70,21 +66,29 @@ HTML_TEMPLATE = """
   </div>
 
   <form method="POST" enctype="multipart/form-data">
-    <label>Article à rechercher (ex. <span class="kbd">29</span>, <span class="kbd">59(2)</span>)</label>
-    <input type="text" name="article" value="{{ searched_article or '' }}" required placeholder="ex.: 29 ou 59(2)" />
-    <label>Fichier Excel</label>
-    <input type="file" name="file" accept=".xlsx,.xlsm" required />
-    <label class="inline">
-      <input type="checkbox" name="isolate" value="1" {% if isolate %}checked{% endif %}>
-      Afficher seulement les segments contenant l’article (dans
-      les 4 colonnes d’intérêt + « Liste des chefs et articles en infraction »)
+    <div>
+      <label>Article à rechercher (ex. <span class="kbd">29</span>, <span class="kbd">59(2)</span>)</label>
+      <input type="text" name="article" value="{{ searched_article or '' }}" required placeholder="ex.: 29 ou 59(2)" />
+    </div>
+
+    <div>
+      <label>Fichier Excel</label>
+      <input type="file" name="file" accept=".xlsx,.xlsm" required />
+    </div>
+
+    <label style="font-weight:500">
+      <input type="checkbox" name="only_segments" value="1" {% if only_segments %}checked{% endif %}/>
+      Afficher seulement le segment contenant l’article dans les colonnes ciblées
     </label>
+
     <button type="submit">Analyser</button>
     <div class="hint">Formats : .xlsx / .xlsm</div>
   </form>
 
   {% if table_html %}
-    <div class="download"><a href="{{ download_url }}">Télécharger le résultat (Excel)</a></div>
+    <div class="download">
+      <a href="{{ download_url }}">Télécharger le résultat (Excel)</a>
+    </div>
     <div class="table-viewport"><div class="table-wide">{{ table_html|safe }}</div></div>
   {% endif %}
 
@@ -95,46 +99,42 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# ─────────────────────────────────────────────────────────────────────
-# Outils de normalisation / entêtes
-# ─────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# Normalisation d’en-têtes & alias
+# ──────────────────────────────────────────────────────────────────────────────
 
 def _norm(s: str) -> str:
-    """Accent-insensitive, trim, lower, compaction."""
     if not isinstance(s, str):
-        s = "" if s is None else str(s)
+        s = str(s) if s is not None else ""
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
     s = s.replace("\u00A0", " ")
     return " ".join(s.strip().lower().split())
 
-# Aliases d’en-têtes
 HEADER_ALIASES: Dict[str, Set[str]] = {
-    # Canon : articles_enfreints  (ex-"Articles enfreints" / "Liste des chefs et articles en infraction")
+    # 4 colonnes d’intérêt + liste chefs/articles
     "articles_enfreints": {
         _norm("Nbr Chefs par articles"),
         _norm("Articles enfreints"),
         _norm("Articles en infraction"),
-        _norm("Liste des chefs et articles en infraction"),
+        _norm("Liste des chefs et articles en infraction"),  # on l’inclut aussi (utile au filtrage)
     },
-    # Canon : duree_totale_radiation
     "duree_totale_radiation": {
         _norm("Nbr Chefs par articles par période de radiation"),
         _norm("Nbr Chefs par articles par periode de radiation"),
         _norm("Durée totale effective radiation"),
         _norm("Duree totale effective radiation"),
     },
-    # Canon : article_amende_chef
     "article_amende_chef": {
         _norm("Nombre de chefs par articles et total amendes"),
         _norm("Article amende/chef"),
         _norm("Articles amende / chef"),
         _norm("Amendes (article/chef)"),
     },
-    # Canon : autres_sanctions  (ici = réprimandes)
     "autres_sanctions": {
         _norm("Nombre de chefs par article ayant une réprimande"),
         _norm("Nombre de chefs par article ayant une reprimande"),
         _norm("Autres sanctions"),
+        _norm("Autres mesures ordonnées"),
     },
 }
 
@@ -146,157 +146,160 @@ FILTER_CANONICAL = [
 ]
 
 def resolve_columns(df: pd.DataFrame) -> Dict[str, Optional[str]]:
-    """Retourne {canonique: libellé_original}"""
-    norm_to_orig = {_norm(c): c for c in df.columns}
-    out: Dict[str, Optional[str]] = {}
+    norm_to_original = {_norm(c): c for c in df.columns}
+    resolved: Dict[str, Optional[str]] = {}
     for canon, variants in HEADER_ALIASES.items():
-        out[canon] = next((norm_to_orig[v] for v in variants if v in norm_to_orig), None)
-    return out
+        hit = None
+        for v in variants:
+            if v in norm_to_original:
+                hit = norm_to_original[v]
+                break
+        resolved[canon] = hit
+    return resolved
 
-# ─────────────────────────────────────────────────────────────────────
-# Lecture Excel (bannière « Article filtré : » en première ligne)
-# ─────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# Lecture Excel (règle « Article filtré : »)
+# ──────────────────────────────────────────────────────────────────────────────
 
-def read_excel_respecting_header_rule(fstream) -> pd.DataFrame:
-    preview = pd.read_excel(fstream, header=None, nrows=2, engine="openpyxl")
-    fstream.seek(0)
-    first = preview.iloc[0, 0] if not preview.empty else None
-    banner = isinstance(first, str) and _norm(first).startswith(_norm("Article filtré :"))
-    if banner:
-        return pd.read_excel(fstream, skiprows=1, header=0, engine="openpyxl")
-    return pd.read_excel(fstream, header=0, engine="openpyxl")
+def read_excel_respecting_header_rule(file_stream) -> pd.DataFrame:
+    df_preview = pd.read_excel(file_stream, header=None, nrows=2, engine="openpyxl")
+    file_stream.seek(0)
+    first_cell = df_preview.iloc[0, 0] if not df_preview.empty else None
+    is_first_row_banner = False
+    if isinstance(first_cell, str):
+        if _norm(first_cell).startswith(_norm("Article filtré :")):
+            is_first_row_banner = True
+    if is_first_row_banner:
+        return pd.read_excel(file_stream, skiprows=1, header=0, engine="openpyxl")
+    return pd.read_excel(file_stream, header=0, engine="openpyxl")
 
-# ─────────────────────────────────────────────────────────────────────
-# Recherche article (motif exact)
-# ─────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# Article → motif exact
+# ──────────────────────────────────────────────────────────────────────────────
 
-def build_article_pattern(token: str) -> re.Pattern:
-    token = (token or "").strip()
+def build_article_pattern(user_input: str) -> re.Pattern:
+    token = (user_input or "").strip()
     if not token:
         raise ValueError("Article vide.")
     esc = re.escape(token)
-    ends_with_digit = token[-1].isdigit()
-    tail = r"(?![\d.])" if ends_with_digit else r"\b"
-    # capture du jeton en groupe(1) pour pouvoir le surligner
-    return re.compile(rf"(?:\b(?:art(?:icle)?\s*[: ]*)?)({esc}){tail}", re.IGNORECASE)
+    tail = r"(?![\d.])" if token[-1].isdigit() else r"\b"
+    return re.compile(rf"(?:\b(?:art(?:icle)?\s*[: ]*)?)({esc}){tail}", flags=re.IGNORECASE)
 
-def boundary_token_regex(token: str) -> re.Pattern:
-    """Pour le surlignage dans le HTML (plus simple, juste le jeton entouré de non-chiffres)."""
-    return re.compile(rf"(?<!\d){re.escape(token)}(?!\d)")
+# ──────────────────────────────────────────────────────────────────────────────
+# Utils “blankish”, dash, split, list-render & highlight
+# ──────────────────────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────
-# Pré-traitement / segmentation
-# ─────────────────────────────────────────────────────────────────────
+def _blankish(x) -> bool:
+    if x is None:
+        return True
+    try:
+        if not isinstance(x, str) and pd.isna(x):
+            return True
+    except Exception:
+        pass
+    if isinstance(x, str) and x.strip().lower() in {"", "nan", "nat", "none"}:
+        return True
+    return False
+
+def _dash_if_empty_html() -> str:
+    return "—"
+
+def _highlight_article(text: str, pat: Optional[re.Pattern]) -> str:
+    if not pat or _blankish(text):
+        return "" if _blankish(text) else str(text)
+    def repl(m): return f"<span class='hl'>{m.group(1)}</span>"
+    return pat.sub(repl, str(text))
+
+def _split_to_items(raw) -> list[str]:
+    if _blankish(raw):
+        return []
+    t = str(raw).replace("\r", "\n")
+    t = t.replace("•", "\n").replace("·", "\n")
+    # On scinde sur | ; ou retours
+    parts = re.split(r"\n+|\s*\|\s*|;", t)
+    items = []
+    for p in parts:
+        s = p.strip(" \t-•·—")
+        if s and s.lower() not in {"nan","nat","none"}:
+            items.append(s)
+    return items
+
+def render_list_cell(value, pat: Optional[re.Pattern], only_segments: bool, highlight: bool) -> str:
+    items = _split_to_items(value)
+    if only_segments and pat:
+        items = [it for it in items if pat.search(it)]
+    if not items:
+        return _dash_if_empty_html()
+    if highlight and pat:
+        items = [_highlight_article(it, pat) for it in items]
+    # liste HTML propre
+    return "<ul class='clean'>" + "".join(f"<li>{it}</li>" for it in items) + "</ul>"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Préparation texte simple (pour le filtrage)
+# ──────────────────────────────────────────────────────────────────────────────
 
 def _prep_text(v) -> str:
-    if not isinstance(v, str):
-        v = "" if v is None else str(v)
-    # uniformisation espaces & sauts
-    v = v.replace(" ", " ").replace(" ", " ")
-    v = v.replace("\r\n", "\n").replace("\r", "\n")
-    v = " ".join(v.split())
-    return v
+    if _blankish(v):
+        return ""
+    s = str(v)
+    s = s.replace("\u00A0", " ").replace("\r\n", "\n").replace("\r", "\n")
+    # On neutralise le symbole puce pour le filtrage
+    s = s.replace("•", " ").replace("·", " ").replace("◦", " ")
+    s = " ".join(s.split())
+    return s
 
-def _split_any(text: str) -> List[str]:
-    """Segmente un texte brut en items (puces, sauts de ligne, ';')."""
-    if not isinstance(text, str) or not text.strip():
-        return []
-    t = text.replace("\r\n", "\n").replace("\r", "\n")
-    for ch in ("•", "·", "◦"):
-        t = t.replace(ch, "\n")
-    t = t.replace(";"," \n ")
-    parts = [p.strip() for p in t.split("\n")]
-    return [p for p in parts if p]
-
-# ─────────────────────────────────────────────────────────────────────
-# Extraction “segments contenant l’article”
-# ─────────────────────────────────────────────────────────────────────
-
-def extract_segments(text: str, pat: re.Pattern) -> List[str]:
-    """Retourne uniquement les segments contenant l'article (via ; ou sauts/puces)."""
-    if not isinstance(text, str) or not text.strip():
-        return []
-    # on segmente « généreusement »
-    parts = _split_any(text)
-    return [p for p in parts if pat.search(_prep_text(p))]
-
-# ─────────────────────────────────────────────────────────────────────
-# Rendu HTML des cellules (liste ou tiret), avec surlignage
-# ─────────────────────────────────────────────────────────────────────
-
-EMPTY_MARK = "—"
-
-def _highlight_html(text: str, token_re: re.Pattern) -> str:
-    """Sécurise en HTML puis surligne le jeton."""
-    esc = html_escape(text)
-    return token_re.sub(lambda m: f'<span class="hit">{m.group(0)}</span>', esc)
-
-def render_list_html(items: List[str], token_re: Optional[re.Pattern]) -> str:
-    if not items:
-        return EMPTY_MARK
-    if token_re:
-        items = [_highlight_html(x, token_re) for x in items]
-    else:
-        items = [html_escape(x) for x in items]
-    return "<ul>" + "".join(f"<li>{x}</li>" for x in items) + "</ul>"
-
-# ─────────────────────────────────────────────────────────────────────
-# Export Excel utilitaire
-# ─────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# Excel export
+# ──────────────────────────────────────────────────────────────────────────────
 
 def to_excel_download(df: pd.DataFrame) -> str:
     ts = int(time.time())
     out_path = f"/tmp/filtrage_{ts}.xlsx"
-    # valeurs NaN → chaîne vide pour Excel
-    df_out = df.copy()
-    df_out = df_out.fillna("")
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
-        df_out.to_excel(writer, index=False, sheet_name="Filtre")
+        df.to_excel(writer, index=False, sheet_name="Filtre")
         ws = writer.book.active
-        # largeur de colonnes approximative
-        for col_idx, col in enumerate(df_out.columns, start=1):
-            max_len = max((len(str(x)) for x in [col] + df_out[col].astype(str).tolist()), default=10)
-            ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(64, max(12, max_len + 2))
+        for col_idx, col in enumerate(df.columns, start=1):
+            max_len = max((len(str(x)) for x in [col] + df[col].astype(str).tolist()), default=10)
+            ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(60, max(12, max_len+2))
     return f"/download?path={out_path}"
 
-# ─────────────────────────────────────────────────────────────────────
-# Route principale
-# ─────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# Routes
+# ──────────────────────────────────────────────────────────────────────────────
 
 @app.route("/", methods=["GET", "POST"])
 def analyze():
     if request.method == "GET":
-        return render_template_string(
-            HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=None,
-            searched_article=None, isolate=False, message=None, message_ok=True
-        )
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                      table_html=None, searched_article=None,
+                                      only_segments=False, message=None, message_ok=True)
 
     file = request.files.get("file")
     article = (request.form.get("article") or "").strip()
-    isolate = bool(request.form.get("isolate"))
+    only_segments = request.form.get("only_segments") == "1"
 
     if not file or not article:
-        return render_template_string(
-            HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=None,
-            searched_article=article, isolate=isolate,
-            message="Erreur : fichier et article sont requis.", message_ok=False
-        )
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                      table_html=None, searched_article=article,
+                                      only_segments=only_segments,
+                                      message="Erreur : fichier et article sont requis.", message_ok=False)
 
     fname = (file.filename or "").lower()
     if not (fname.endswith(".xlsx") or fname.endswith(".xlsm")):
-        return render_template_string(
-            HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=None,
-            searched_article=article, isolate=isolate,
-            message=("Format non pris en charge. Veuillez fournir .xlsx ou .xlsm."), message_ok=False
-        )
+        ext = (file.filename or "").split(".")[-1]
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                      table_html=None, searched_article=article,
+                                      only_segments=only_segments,
+                                      message=f"Format non pris en charge : {ext}. Utilisez .xlsx ou .xlsm.",
+                                      message_ok=False)
 
     try:
         df = read_excel_respecting_header_rule(file.stream)
         colmap = resolve_columns(df)
         pat = build_article_pattern(article)
-        token_re = boundary_token_regex(article)
 
-        # 1) Filtrage des lignes : l’article doit apparaître dans ≥1 des 4 colonnes cibles
+        # Filtrage : ligne conservée si l’article est présent dans AU MOINS une colonne cible
         masks = []
         any_cols = False
         for canon in FILTER_CANONICAL:
@@ -305,115 +308,93 @@ def analyze():
                 any_cols = True
                 masks.append(df[col].astype(str).apply(lambda v: bool(pat.search(_prep_text(v)))))
         if not any_cols:
-            detail = "\n".join([f"- {k}: {colmap.get(k)}" for k in FILTER_CANONICAL])
+            detail = "\n".join([f"  - {k}: {colmap.get(k)}" for k in FILTER_CANONICAL])
             return render_template_string(
                 HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=None,
-                searched_article=article, isolate=isolate,
-                message=("Erreur : colonnes cibles introuvables.\n" + detail + "\nColonnes du fichier :\n" + str(list(df.columns))),
+                searched_article=article, only_segments=only_segments,
+                message=("Erreur : aucune des colonnes attendues n’a été trouvée.\n"
+                         f"Colonnes résolues :\n{detail}\n\nColonnes disponibles :\n{list(df.columns)}"),
                 message_ok=False
             )
-
         mask_any = masks[0]
         for m in masks[1:]:
             mask_any = mask_any | m
 
         df_filtered = df[mask_any].copy()
         if df_filtered.empty:
-            return render_template_string(
-                HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=None,
-                searched_article=article, isolate=isolate,
-                message=f"Aucune ligne ne contient l’article « {article} » dans les colonnes cibles.",
-                message_ok=True
-            )
+            return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                          table_html=None, searched_article=article,
+                                          only_segments=only_segments,
+                                          message=f"Aucune ligne ne contient l’article « {article} » dans les colonnes cibles.",
+                                          message_ok=True)
 
-        # 2) Préparation des colonnes à rendre "en liste"
-        #    (ajoute les colonnes textuelles affichées en listes)
-        list_titles_extra = [
-            "Résumé des faits concis",
-            "Liste des chefs et articles en infraction",
-            "Liste des sanctions imposées",
-            "Autres mesures ordonnées",
-            "À vérifier",
-        ]
-        list_cols: List[str] = []
-        for canon in FILTER_CANONICAL:
-            col = colmap.get(canon)
-            if col and col in df_filtered.columns:
-                list_cols.append(col)
-        for t in list_titles_extra:
-            if t in df_filtered.columns and t not in list_cols:
-                list_cols.append(t)
+        # ── Construction d’une vue d’affichage (listes + surlignage + anti-“nan”)
+        df_display = df_filtered.copy()
 
-        # 3) Jeu de données destiné à l'export (pas de HTML)
-        #    - si "isolate", on remplace le contenu des 4 colonnes cibles
-        #      + « Liste des chefs et articles en infraction » par les *segments* contenant l'article.
-        df_export = df_filtered.copy()
+        # Normaliser toutes les cellules vides (pas de "nan")
+        df_display = df_display.where(pd.notna(df_display), "")
+        df_display = df_display.applymap(lambda x: "" if _blankish(x) else str(x))
 
-        isolate_targets = set()
-        for canon in FILTER_CANONICAL:
-            col = colmap.get(canon)
-            if col and col in df_export.columns:
-                isolate_targets.add(col)
-        # assurer que la colonne "Liste des chefs et articles en infraction" est incluse si elle existe
-        if "Liste des chefs et articles en infraction" in df_export.columns:
-            isolate_targets.add("Liste des chefs et articles en infraction")
+        # Colonnes à rendre en listes (nom normalisé)
+        listify_norms = {
+            _norm("Résumé des faits concis"),
+            _norm("Liste des chefs et articles en infraction"),
+            _norm("Liste des sanctions imposées"),
+            _norm("Autres mesures ordonnées"),
+            _norm("À vérifier"), _norm("A verifier"),
+            _norm("Nbr Chefs par articles"),
+            _norm("Nbr Chefs par articles par période de radiation"),
+            _norm("Nombre de chefs par articles et total amendes"),
+            _norm("Nombre de chefs par article ayant une réprimande"),
+        }
+        # Colonnes avec surlignage rouge
+        highlight_norms = {
+            _norm("Liste des chefs et articles en infraction"),
+            _norm("Nbr Chefs par articles"),
+            _norm("Nbr Chefs par articles par période de radiation"),
+            _norm("Nombre de chefs par articles et total amendes"),
+            _norm("Nombre de chefs par article ayant une réprimande"),
+        }
 
-        if isolate:
-            for col in isolate_targets:
-                df_export[col] = df_export[col].apply(
-                    lambda v: " | ".join(extract_segments(v, pat)) if isinstance(v, str) else ""
+        # Rendu colonne par colonne
+        for col in df_display.columns:
+            n = _norm(col)
+            if n in listify_norms:
+                df_display[col] = df_display[col].apply(
+                    lambda v: render_list_cell(v, pat if n in highlight_norms else None,
+                                               only_segments if n in highlight_norms else False,
+                                               highlight=(n in highlight_norms))
                 )
+            else:
+                # Pas de liste → texte simple, mais anti-“nan” + surlignage si colonne dans highlight_norms ?
+                def _simple(v):
+                    if _blankish(v):
+                        return _dash_if_empty_html()
+                    txt = str(v)
+                    return _highlight_article(txt, pat) if n in highlight_norms else txt
+                df_display[col] = df_display[col].apply(_simple)
 
-        # 4) Jeu de données destiné à l'HTML (liste à puces + surlignage)
-        df_html = df_export.copy()
+        # Lien téléchargement = on exporte le dataframe filtré “brut” (pas la version HTML)
+        download_url = to_excel_download(df_filtered)
 
-        # colonnes à surligner (4 cibles + « Liste des chefs et articles en infraction »)
-        highlight_cols = set(isolate_targets)
-
-        def _format_cell(value, column_name):
-            # transforme la cellule en <ul>…</ul> si items, sinon tiret —
-            # segmentation : si "isolate" a été appliqué à l'export, la valeur contient " | "
-            # sinon on segmente à partir du texte brut.
-            if column_name in list_cols:
-                if isinstance(value, str) and " | " in value:
-                    items = [x.strip() for x in value.split("|") if x.strip()]
-                else:
-                    items = _split_any("" if value is None else str(value))
-                token = token_re if column_name in highlight_cols else None
-                return render_list_html(items, token)
-            # colonnes non listées : afficher brut échappé (ou tiret si vide)
-            s = "" if value is None else str(value).strip()
-            return html_escape(s) if s else EMPTY_MARK
-
-        for c in list_cols:
-            if c in df_html.columns:
-                df_html[c] = df_html[c].map(lambda v, col=c: _format_cell(v, col))
-
-        # 5) Export Excel (texte sans HTML)
-        download_url = to_excel_download(df_export)
-
-        # 6) Tableau HTML
-        preview = df_html.head(200)
-        table_html = preview.to_html(index=False, escape=False)
+        # HTML (avec échappement désactivé pour accepter nos <ul>/<span>)
+        table_html = df_display.head(200).to_html(index=False, escape=False)
 
         return render_template_string(
             HTML_TEMPLATE, style_block=STYLE_BLOCK,
-            table_html=table_html, searched_article=article, isolate=isolate,
-            download_url=download_url,
-            message=f"{len(df_export)} ligne(s) retenues. (Aperçu limité à 200.)",
+            table_html=table_html, searched_article=article,
+            only_segments=only_segments, download_url=download_url,
+            message=f"{len(df_filtered)} ligne(s) après filtrage. (Aperçu limité à 200 lignes.)",
             message_ok=True
         )
 
     except Exception as e:
         return render_template_string(
-            HTML_TEMPLATE, style_block=STYLE_BLOCK, table_html=None,
-            searched_article=article, isolate=isolate,
+            HTML_TEMPLATE, style_block=STYLE_BLOCK,
+            table_html=None, searched_article=article,
+            only_segments=only_segments,
             message=f"Erreur inattendue : {repr(e)}", message_ok=False
         )
-
-# ─────────────────────────────────────────────────────────────────────
-# Téléchargement
-# ─────────────────────────────────────────────────────────────────────
 
 @app.route("/download")
 def download():
@@ -421,7 +402,6 @@ def download():
     if not path or not os.path.exists(path):
         return "Fichier introuvable ou expiré.", 404
     return send_file(path, as_attachment=True, download_name=os.path.basename(path))
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
