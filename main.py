@@ -1,293 +1,420 @@
-# main.py  —  09-09
-# - Option “segment seul” rétablie
-# - Téléchargement Excel toujours présent quand un tableau est rendu
-# - Largeurs de colonnes selon tes règles (injection <colgroup>)
-# - En-têtes centrées, contenu laissé à gauche
-# - Remplace les NaN par "—"
-# - Mise en évidence (rouge) de l’article dans les 4 colonnes d’intérêt + “Liste des chefs et articles en infraction”
+# -*- coding: utf-8 -*-
+# Analyseur Discipline – Filtrage par article (largeurs + puces + surlignage + export)
+# 2025-09-09
 
-import os, re, time, unicodedata
+import os
+import re
+import time
+import unicodedata
 from typing import Dict, Optional, Set, List
-from flask import Flask, request, render_template_string, send_file
+
 import pandas as pd
+from flask import Flask, request, render_template_string, send_file
 
 app = Flask(__name__)
 
-# ========== UI / CSS ==========
+# ──────────────────────────────────────────────────────────────────────────────
+# Styles généraux + classes de largeur
+# ──────────────────────────────────────────────────────────────────────────────
 STYLE_BLOCK = """
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px}
-  h1{font-size:20px;margin-bottom:12px}
-  form{display:grid;gap:10px;margin-bottom:16px}
-  input[type="text"],input[type="file"]{font-size:14px}
-  button{padding:8px 12px;font-size:14px;cursor:pointer}
-  .note{background:#fff6e5;border:1px solid #ffd89b;padding:8px 10px;border-radius:6px;margin:10px 0 14px}
-  .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#f3f4f6;padding:2px 4px;border-radius:4px}
-  .download{margin:10px 0 8px}
-  .msg{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;margin-top:10px}
-  .ok{color:#065f46}.err{color:#7f1d1d}
+  :root{
+    --base-w: 220px;         /* largeur mini par défaut */
+    --w-2x:   440px;         /* largeur mini 2x */
+  }
+  body{font-family: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; margin:24px;}
+  h1{font-size:20px; margin:0 0 12px;}
+  form{display:grid; gap:12px; margin:0 0 16px;}
+  input[type="text"]{padding:8px; font-size:14px}
+  input[type="file"]{font-size:14px}
+  label{font-weight:600}
+  .hint{font-size:12px; color:#666}
+  .note{background:#fff6e5; border:1px solid #ffd89b; padding:8px 10px; border-radius:6px; margin:10px 0 16px}
+  .download{margin:12px 0}
 
-  table{border-collapse:collapse;width:100%;font-size:13px}
-  th,td{border:1px solid #ddd;padding:6px 8px;vertical-align:top}
-  th{background:#f3f4f6;text-align:center}
-  td{text-align:left}
+  /* Conteneur scrollable horizontal + vertical */
+  .viewport{height:60vh; overflow:auto; border:1px solid #e5e7eb; border-radius:6px}
+  /* On garde la table de Pandas mais on lui ajoute une classe */
+  table.dataframe.table-custom{border-collapse:collapse; width:100%; table-layout:auto; font-size:13px}
+  table.dataframe.table-custom th, table.dataframe.table-custom td{
+    border:1px solid #e5e7eb; padding:6px 8px; vertical-align:top; white-space:normal; word-wrap:break-word
+  }
+  table.dataframe.table-custom th{background:#f3f4f6; text-align:center}
+  /* Surlignage de l’article */
+  .hit{color:#c1121f; font-weight:700}
 
-  /* fenêtre défilante horizontale quand nécessaire */
-  .table-viewport{height:62vh;overflow:auto;border:1px solid #ddd}
-  .table-viewport table{width:100%}
+  /* Largeurs : on applique par nth-child (injection CSS ciblée plus bas) */
+  /* Classes génériques au cas où */
+  .w-base{min-width:var(--base-w)}
+  .w-2x{min-width:var(--w-2x)}
+
+  /* UL propres pour les cellules à puces */
+  .cell-list{margin:0; padding-left:18px}
 </style>
 """
 
+# ──────────────────────────────────────────────────────────────────────────────
+# HTML de base
+# ──────────────────────────────────────────────────────────────────────────────
 HTML_TEMPLATE = """
 <!doctype html>
-<html lang="fr">
-<head><meta charset="utf-8"><title>Analyseur Discipline – Filtrage par article</title>{{ style|safe }}</head>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Analyseur Discipline – Filtrage par article</title>
+{{ style_block|safe }}
+</head>
 <body>
   <h1>Analyseur Discipline – Filtrage par article</h1>
 
   <div class="note">
-    Règles : détection exacte de l’article. Si la 1<sup>re</sup> cellule contient « <span class="kbd">Article filtré :</span> », 
-    on ignore la 1<sup>re</sup> ligne (en-têtes sur la 2<sup>e</sup> ligne).
+    Règles : détection exacte de l’article ; si la 1<sup>re</sup> cellule contient « <code>Article filtré :</code> », la 2<sup>e</sup> ligne sert d’en-têtes.
   </div>
 
   <form method="POST" enctype="multipart/form-data">
-    <label>Article à rechercher (ex. <span class="kbd">29</span>, <span class="kbd">59(2)</span>)</label>
-    <input type="text" name="article" required value="{{ article or '' }}" placeholder="ex. 29 ou 59(2)" />
-    <label><input type="checkbox" name="segment_seul" {% if segment_seul %}checked{% endif %}> 
-      Afficher uniquement le segment contenant l’article dans les 4 colonnes d’intérêt
-    </label>
-    <label>Fichier Excel</label>
-    <input type="file" name="file" accept=".xlsx,.xlsm" required />
+    <div>
+      <label>Article à rechercher (ex. <code>29</code>, <code>59(2)</code>)</label>
+      <input type="text" name="article" value="{{ article or '' }}" required placeholder="ex.: 29 ou 59(2)">
+    </div>
+    <div>
+      <label>Fichier Excel</label>
+      <input type="file" name="file" accept=".xlsx,.xlsm" required>
+    </div>
+    <div>
+      <label style="font-weight:500">
+        <input type="checkbox" name="only_hits" {% if only_hits %}checked{% endif %}>
+        Afficher uniquement le segment contenant l'article dans les 4 colonnes d’intérêt
+      </label>
+    </div>
     <button type="submit">Analyser</button>
-    <div>Formats : .xlsx / .xlsm</div>
+    <div class="hint">Formats : .xlsx / .xlsm</div>
   </form>
 
   {% if table_html %}
-    <div class="download"><a href="{{ download_url }}">Télécharger le résultat (Excel)</a></div>
-    <div class="table-viewport">{{ table_html|safe }}</div>
+    <div class="download">
+      <a href="{{ download_url }}">Télécharger le résultat (Excel)</a>
+    </div>
+    <div class="viewport">
+      {{ table_html|safe }}
+    </div>
   {% endif %}
 
-  {% if message %}<div class="msg {{ 'ok' if ok else 'err'}}">{{ message }}</div>{% endif %}
-</body></html>
+  {% if message %}
+    <pre class="hint" style="white-space:pre-wrap">{{ message }}</pre>
+  {% endif %}
+</body>
+</html>
 """
 
-# ========== Normalisation des libellés ==========
+# ──────────────────────────────────────────────────────────────────────────────
+# Normalisation en-têtes
+# ──────────────────────────────────────────────────────────────────────────────
 def _norm(s: str) -> str:
     if not isinstance(s, str):
         s = "" if s is None else str(s)
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    s = unicodedata.normalize("NFKD", s).encode("ascii","ignore").decode("ascii")
     s = s.replace("\u00A0", " ")
     return " ".join(s.strip().lower().split())
 
-# Aliases d’en-têtes → canoniques
-HEADER_ALIASES: Dict[str, Set[str]] = {
-  # 4 colonnes d’intérêt
-  "nbr_chefs_par_articles": {
-      _norm("Nbr Chefs par articles"), _norm("Nombre de chefs par articles"),
+# Alias d’en-têtes (canons → variantes)
+HDR: Dict[str, Set[str]] = {
+  "offences_list": {
+    _norm("Liste des chefs et articles en infraction"),
+    _norm("Articles en infraction"), _norm("Articles enfreints")
   },
-  "nbr_chefs_par_articles_par_periode": {
-      _norm("Nbr Chefs par articles par période de radiation"),
-      _norm("Nbr Chefs par articles par periode de radiation"),
+  "per_article": {
+    _norm("Nbr Chefs par articles"),
+    _norm("Nombre de chefs par articles")
   },
-  "nb_chefs_article_reprimande": {
-      _norm("Nombre de chefs par article ayant une réprimande"),
-      _norm("Nombre de chefs par article ayant une reprimande"),
+  "per_period": {
+    _norm("Nbr Chefs par articles par période de radiation"),
+    _norm("Nbr Chefs par articles par periode de radiation")
   },
-  "nb_chefs_articles_et_total_amendes": {
-      _norm("Nombre de chefs par articles et total amendes"),
+  "amendes": {
+    _norm("Nombre de chefs par articles et total amendes"),
+    _norm("Article amende/chef"), _norm("Articles amende / chef"),
   },
-  # autres colonnes qu’on manipule pour la mise en forme
-  "liste_chefs_articles_infraction": {
-      _norm("Liste des chefs et articles en infraction"),
+  "repr": {
+    _norm("Nombre de chefs par article ayant une réprimande"),
+    _norm("Nombre de chefs par article ayant une reprimande")
   },
-  "liste_sanctions": {_norm("Liste des sanctions imposées"), _norm("Liste des sanctions imposees")},
-  "resume_faits": {_norm("Résumé des faits concis"), _norm("Resume des faits concis")},
-  "autres_mesures": {_norm("Autres mesures ordonnées"), _norm("Autres mesures ordonnees")},
+  "faits": {
+    _norm("Résumé des faits concis"),
+    _norm("Resume des faits concis")
+  },
+  "sanctions": {
+    _norm("Liste des sanctions imposées"),
+    _norm("Liste des sanctions imposees")
+  },
+  "autres_mesures": {
+    _norm("Autres mesures ordonnées"),
+    _norm("Autres mesures ordonnees")
+  },
+  "a_verifier": {_norm("À vérifier"), _norm("A verifier")},
   "date_creation": {_norm("Date de création"), _norm("Date de creation")},
-  "date_mise_jour": {_norm("Date de mise à jour"), _norm("Date de mise a jour")},
-  "numero_decision": {_norm("Numéro de la décision"), _norm("Numero de la decision")},
+  "date_maj": {_norm("Date de mise à jour"), _norm("Date de mise a jour")},
+  "no_decision": {_norm("Numéro de la décision"), _norm("Numero de la decision"), _norm("No decision")},
 }
 
-INTEREST_KEYS = [
-  "nbr_chefs_par_articles",
-  "nbr_chefs_par_articles_par_periode",
-  "nb_chefs_article_reprimande",
-  "nb_chefs_articles_et_total_amendes",
-]
+# Colonnes d’intérêt pour le FILTRAGE + surlignage
+FILTER_CANON = ["per_article", "per_period", "amendes", "repr"]
 
-def resolve_columns(df: pd.DataFrame) -> Dict[str, Optional[str]]:
-    norm2orig = {_norm(c): c for c in df.columns}
-    out = {}
-    for key, variants in HEADER_ALIASES.items():
+def resolve_cols(df: pd.DataFrame) -> Dict[str, Optional[str]]:
+    mapping = {}
+    inv = {_norm(c): c for c in df.columns}
+    for canon, variants in HDR.items():
         hit = None
         for v in variants:
-            if v in norm2orig:
-                hit = norm2orig[v]
-                break
-        out[key] = hit
-    return out
+            if v in inv:
+                hit = inv[v]; break
+        mapping[canon] = hit
+    return mapping
 
-# ========== Lecture Excel (règle "Article filtré :") ==========
-def read_excel(file_stream) -> pd.DataFrame:
-    prev = pd.read_excel(file_stream, header=None, nrows=2, engine="openpyxl")
-    file_stream.seek(0)
-    first = prev.iloc[0, 0] if not prev.empty else None
+# ──────────────────────────────────────────────────────────────────────────────
+# Lecture Excel (gestion bannière "Article filtré :")
+# ──────────────────────────────────────────────────────────────────────────────
+def read_excel(file) -> pd.DataFrame:
+    preview = pd.read_excel(file, engine="openpyxl", header=None, nrows=2)
+    file.seek(0)
+    first = preview.iloc[0,0] if not preview.empty else None
     if isinstance(first, str) and _norm(first).startswith(_norm("Article filtré :")):
-        return pd.read_excel(file_stream, skiprows=1, header=0, engine="openpyxl")
-    return pd.read_excel(file_stream, header=0, engine="openpyxl")
+        return pd.read_excel(file, engine="openpyxl", skiprows=1)
+    return pd.read_excel(file, engine="openpyxl")
 
-# ========== Recherche d’article ==========
-def build_article_pattern(token: str) -> re.Pattern:
-    token = (token or "").strip()
-    if not token:
-        raise ValueError("Article vide.")
+# ──────────────────────────────────────────────────────────────────────────────
+# Article → motif regex exact
+# ──────────────────────────────────────────────────────────────────────────────
+def build_pattern(article: str) -> re.Pattern:
+    token = (article or "").strip()
+    if not token: raise ValueError("Article vide")
     esc = re.escape(token)
     tail = r"(?![\d.])" if token[-1].isdigit() else r"\b"
-    return re.compile(rf"(?:\b(?:art(?:icle)?\s*[: ]*)?)({esc}){tail}", re.I)
+    return re.compile(rf"(?:\b(?:art(?:icle)?\s*[: ]*)?)({esc}){tail}", re.IGNORECASE)
 
-def _prep(v: str) -> str:
-    if not isinstance(v, str):
-        v = "" if v is None else str(v)
-    return " ".join(v.replace("•"," ").replace(" "," ").replace(" "," ").replace("\r"," ").split())
+# ──────────────────────────────────────────────────────────────────────────────
+# Utilitaires de texte
+# ──────────────────────────────────────────────────────────────────────────────
+def prep(v) -> str:
+    if not isinstance(v,str): v = "" if v is None else str(v)
+    return v.replace("\u00A0"," ").replace("\u202F"," ").replace("\r","").strip()
 
-def _highlight_html(text: str, pat: re.Pattern) -> str:
-    def repl(m): return f'<span style="color:#c1121f;font-weight:600">{m.group(1)}</span>'
-    try:
-        return pat.sub(repl, text)
-    except Exception:
-        return text
+def to_bullets(text: str) -> str:
+    """Transforme un bloc en <ul><li>…</li></ul>, sinon renvoie '—' si vide."""
+    t = prep(text)
+    if not t: return "—"
+    # on coupe sur retours ligne ou '•' ou ' | '
+    parts = []
+    for raw in re.split(r"\n|•|\s\|\s", t):
+        p = raw.strip(" ;,")
+        if p: parts.append(p)
+    if not parts: return "—"
+    lis = "".join(f"<li>{p}</li>" for p in parts)
+    return f'<ul class="cell-list">{lis}</ul>'
 
-# ========== Extraction “segment seul” ==========
-def extract_segments(text: str, pat: re.Pattern) -> str:
-    if not isinstance(text, str) or not text.strip():
-        return ""
-    parts = re.split(r"[;\n]", text)  # coupe proprement les segments usuels
-    keep = [p.strip() for p in parts if pat.search(p)]
-    return " • ".join(keep)
+def highlight_article_html(text: str, pat: re.Pattern) -> str:
+    if not text: return text
+    # on ne modifie pas hors HTML
+    return pat.sub(r'<span class="hit">\\1</span>', text)
 
-# ========== Largeurs par colonne (injection <colgroup>) ==========
-def inject_colgroup(table_html: str, columns: List[str]) -> str:
-    # base = 18ch ; “double” = 36ch
-    base = 18
-    dbl = 36
-    # colonnes à élargir x2
-    widen2 = {
+# Extraction des segments contenant l’article (pour l’option “only_hits”)
+def keep_only_hits(text: str, pat: re.Pattern) -> str:
+    t = prep(text)
+    if not t: return ""
+    segs = re.split(r"[;\n]", t)
+    kept = [s.strip() for s in segs if pat.search(s)]
+    return " | ".join(kept)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Fabrication du tableau HTML (puces, surlignage, largeurs)
+# ──────────────────────────────────────────────────────────────────────────────
+def build_html_table(df: pd.DataFrame,
+                     colmap: Dict[str,str],
+                     pat: re.Pattern,
+                     only_hits: bool) -> str:
+    work = df.copy()
+
+    # 1) Option : ne garder QUE le segment dans les 4 colonnes d’intérêt
+    if only_hits:
+        for k in FILTER_CANON:
+            col = colmap.get(k)
+            if col and col in work.columns:
+                work[col] = work[col].apply(lambda v: keep_only_hits(v, pat))
+
+    # 2) Surlignage dans les 4 colonnes d’intérêt + Liste des chefs…
+    for k in FILTER_CANON + ["offences_list"]:
+        col = colmap.get(k)
+        if col and col in work.columns:
+            work[col] = work[col].astype(str).apply(lambda v: highlight_article_html(v, pat))
+
+    # 3) Rendu en listes à puces pour les colonnes “riches”
+    bullet_cols = [
+        colmap.get("faits"), colmap.get("offences_list"),
+        colmap.get("sanctions"), colmap.get("per_article"),
+        colmap.get("per_period"), colmap.get("amendes"),
+        colmap.get("repr"), colmap.get("autres_mesures"),
+        colmap.get("a_verifier"),
+    ]
+    for c in bullet_cols:
+        if c and c in work.columns:
+            work[c] = work[c].apply(to_bullets)
+
+    # 4) NaN → tiret (attention : sans puce)
+    work = work.fillna("—")
+
+    # 5) Génération HTML
+    html = work.to_html(index=False, escape=False)
+    # On force notre classe (pour styles/table-layout) sans perdre “dataframe”
+    html = html.replace('<table border="1" class="dataframe">', '<table border="1" class="dataframe table-custom">')
+
+    # 6) Injection CSS de largeur par nth-child, en ciblant les libellés
+    #    On lit les <th> pour retrouver leurs positions
+    headers = re.findall(r"<th[^>]*>(.*?)</th>", html, flags=re.S)
+    headers_clean = [re.sub("<.*?>","",h).strip() for h in headers]  # on retire les tags
+    # Colonnes à élargir ×2
+    double_set = {
+        # groupe des 5 “simples”
         _norm("Résumé des faits concis"),
         _norm("Autres mesures ordonnées"),
         _norm("Date de création"),
         _norm("Date de mise à jour"),
         _norm("Numéro de la décision"),
-        _norm("Nombre de chefs par articles et total amendes"),
+        # groupe des 4 (même largeur)
         _norm("Nbr Chefs par articles"),
         _norm("Nbr Chefs par articles par période de radiation"),
+        _norm("Nombre de chefs par articles et total amendes"),
         _norm("Nombre de chefs par article ayant une réprimande"),
     }
-    widths = []
-    for c in columns:
-        widths.append(dbl if _norm(c) in widen2 else base)
-    colgroup = "<colgroup>" + "".join([f'<col style="width:{w}ch">' for w in widths]) + "</colgroup>"
-    # insère juste après l’ouverture de <table>
-    return table_html.replace("<table", "<table" + ">" + colgroup, 1).replace(">>", ">")
+    # Colonnes “laisser tel quel” → aucune règle (offences_list & sanctions)
+    leave_as_is = {
+        _norm("Liste des chefs et articles en infraction"),
+        _norm("Liste des sanctions imposées"),
+    }
 
-# ========== Export Excel ==========
+    # On fabrique des règles nth-child
+    rules: List[str] = []
+    for idx, title in enumerate(headers_clean, start=1):
+        n = _norm(title)
+        if n in leave_as_is:
+            continue  # aucune règle = largeur auto
+        if n in double_set:
+            rules.append(f'.table-custom th:nth-child({idx}), .table-custom td:nth-child({idx})' +
+                         '{min-width:var(--w-2x)}')
+        else:
+            # largeur de base pour les autres (ça évite de redevenir trop étroit)
+            rules.append(f'.table-custom th:nth-child({idx}), .table-custom td:nth-child({idx})' +
+                         '{min-width:var(--base-w)}')
+
+    width_css = "<style>\n" + "\n".join(rules) + "\n</style>"
+    # On insère ce bloc juste après l’ouverture de la table
+    html = html.replace("<table ", width_css + "\n<table ")
+
+    # 7) Nettoyage "nan" résiduels au cas où
+    html = re.sub(r">\\s*(?:nan|NaN)\\s*<", ">—<", html)
+
+    return html
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Export Excel (auto-fit basique + feuille unique)
+# ──────────────────────────────────────────────────────────────────────────────
 def to_excel_download(df: pd.DataFrame) -> str:
     ts = int(time.time())
-    out = f"/tmp/filtrage_{ts}.xlsx"
-    with pd.ExcelWriter(out, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="Filtre", index=False)
+    out_path = f"/tmp/filtrage_{ts}.xlsx"
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Filtre")
         ws = writer.book.active
-        for i, col in enumerate(df.columns, start=1):
-            maxlen = max((len(str(x)) for x in [col] + df[col].astype(str).tolist()), default=10)
-            ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = min(60, max(12, maxlen + 2))
-    return f"/download?path={out}"
+        # auto-fit simple
+        for c_idx, col in enumerate(df.columns, start=1):
+            max_len = max((len(str(x)) for x in [col] + df[col].astype(str).tolist()), default=10)
+            width = min(60, max(12, max_len + 2))
+            ws.column_dimensions[ws.cell(row=1, column=c_idx).column_letter].width = width
+    return f"/download?path={out_path}"
 
-# ========== Route principale ==========
+# ──────────────────────────────────────────────────────────────────────────────
+# Route principale
+# ──────────────────────────────────────────────────────────────────────────────
 @app.route("/", methods=["GET","POST"])
-def home():
+def main():
     if request.method == "GET":
-        return render_template_string(HTML_TEMPLATE, style=STYLE_BLOCK, table_html=None,
-                                      download_url=None, message=None, ok=True,
-                                      article="", segment_seul=False)
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                      article="", only_hits=False,
+                                      table_html=None, download_url=None, message=None)
 
     file = request.files.get("file")
     article = (request.form.get("article") or "").strip()
-    segment_seul = bool(request.form.get("segment_seul"))
+    only_hits = bool(request.form.get("only_hits"))
 
     if not file or not article:
-        return render_template_string(HTML_TEMPLATE, style=STYLE_BLOCK, table_html=None,
-                                      download_url=None, article=article, segment_seul=segment_seul,
-                                      message="Fichier et article requis.", ok=False)
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                      article=article, only_hits=only_hits,
+                                      table_html=None, download_url=None,
+                                      message="Veuillez fournir un article et un fichier Excel (.xlsx / .xlsm).")
 
+    # formats pris en charge
     fname = (file.filename or "").lower()
     if not (fname.endswith(".xlsx") or fname.endswith(".xlsm")):
-        return render_template_string(HTML_TEMPLATE, style=STYLE_BLOCK, table_html=None,
-                                      download_url=None, article=article, segment_seul=segment_seul,
-                                      message="Formats supportés : .xlsx / .xlsm", ok=False)
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                      article=article, only_hits=only_hits,
+                                      table_html=None, download_url=None,
+                                      message="Format non pris en charge. Utilisez un .xlsx ou .xlsm.")
 
     try:
         df = read_excel(file.stream)
-        colmap = resolve_columns(df)
-        pat = build_article_pattern(article)
+        colmap = resolve_cols(df)
+        pat = build_pattern(article)
 
-        # Filtrage des lignes : article présent dans au moins une des 4 colonnes d’intérêt
+        # Filtrage : on retient les lignes où l’article apparait AU MOINS dans une des 4 colonnes d’intérêt
         masks = []
-        for key in INTEREST_KEYS:
-            col = colmap.get(key)
+        for k in FILTER_CANON:
+            col = colmap.get(k)
             if col and col in df.columns:
-                masks.append(df[col].astype(str).apply(lambda v: bool(pat.search(_prep(v)))))
+                m = df[col].astype(str).apply(lambda v: bool(pat.search(prep(v))))
+                masks.append(m)
         if not masks:
-            return render_template_string(HTML_TEMPLATE, style=STYLE_BLOCK, table_html=None,
-                                          download_url=None, article=article, segment_seul=segment_seul,
-                                          message="Aucune des 4 colonnes d’intérêt n’a été trouvée dans ce fichier.",
-                                          ok=False)
+            return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                          article=article, only_hits=only_hits,
+                                          table_html=None, download_url=None,
+                                          message=("Aucune des 4 colonnes d’intérêt n’a été trouvée.\n"
+                                                   f"Colonnes disponibles : {list(df.columns)}"))
+
         mask_any = masks[0]
         for m in masks[1:]: mask_any = mask_any | m
-        df = df[mask_any].copy()
-        if df.empty:
-            return render_template_string(HTML_TEMPLATE, style=STYLE_BLOCK, table_html=None,
-                                          download_url=None, article=article, segment_seul=segment_seul,
-                                          message=f"Aucune ligne ne contient l’article « {article} » dans les colonnes cibles.",
-                                          ok=True)
+        df_keep = df[mask_any].copy()
+        if df_keep.empty:
+            return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                          article=article, only_hits=only_hits,
+                                          table_html=None, download_url=None,
+                                          message=f"Aucune ligne ne contient l’article « {article} » dans les colonnes d’intérêt.")
 
-        # Nettoyage “segment seul” (uniquement dans les 4 colonnes d’intérêt)
-        if segment_seul:
-            for key in INTEREST_KEYS:
-                col = colmap.get(key)
-                if col and col in df.columns:
-                    df[col] = df[col].apply(lambda v: extract_segments(v, pat))
+        # HTML (puces + surlignage + largeurs)
+        table_html = build_html_table(df_keep, colmap, pat, only_hits)
+        # Export Excel
+        download_url = to_excel_download(df_keep if not only_hits else df_keep.assign(**{
+            # si only_hits : on pose aussi la version “segment” dans le fichier
+            (colmap[k] or f"_col_{k}"): df_keep[colmap[k]].apply(lambda v: keep_only_hits(v, pat))
+            for k in FILTER_CANON if colmap.get(k) in df_keep.columns
+        }))
 
-        # Remplace NaN par —
-        df = df.fillna("—")
-
-        # Mise en évidence (rouge) de l’article dans 4 colonnes d’intérêt + “Liste des chefs et articles en infraction”
-        highlight_cols = [colmap.get(k) for k in INTEREST_KEYS] + [colmap.get("liste_chefs_articles_infraction")]
-        highlight_cols = [c for c in highlight_cols if c and c in df.columns]
-        for c in highlight_cols:
-            df[c] = df[c].astype(str).apply(lambda s: _highlight_html(s, pat))
-
-        # Génération HTML avec <colgroup> pour les largeurs
-        preview = df.head(200)  # garde un aperçu raisonnable
-        html = preview.to_html(index=False, escape=False)  # on garde le HTML de mise en évidence
-        html = inject_colgroup(html, list(preview.columns))
-
-        download_url = to_excel_download(df)
-        return render_template_string(HTML_TEMPLATE, style=STYLE_BLOCK,
-                                      table_html=html, download_url=download_url,
-                                      article=article, segment_seul=segment_seul,
-                                      message=f"{len(df)} ligne(s) — aperçu affiché limité à 200.", ok=True)
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                      article=article, only_hits=only_hits,
+                                      table_html=table_html, download_url=download_url,
+                                      message=None)
 
     except Exception as e:
-        return render_template_string(HTML_TEMPLATE, style=STYLE_BLOCK, table_html=None,
-                                      download_url=None, article=article, segment_seul=segment_seul,
-                                      message=f"Erreur : {e!r}", ok=False)
+        return render_template_string(HTML_TEMPLATE, style_block=STYLE_BLOCK,
+                                      article=article, only_hits=only_hits,
+                                      table_html=None, download_url=None,
+                                      message=f"Erreur inattendue : {repr(e)}")
 
+# ──────────────────────────────────────────────────────────────────────────────
 # Téléchargement
+# ──────────────────────────────────────────────────────────────────────────────
 @app.route("/download")
 def download():
     path = request.args.get("path")
     if not path or not os.path.exists(path):
-        return "Fichier introuvable.", 404
+        return "Fichier introuvable ou expiré.", 404
     return send_file(path, as_attachment=True, download_name=os.path.basename(path))
 
+# ──────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
