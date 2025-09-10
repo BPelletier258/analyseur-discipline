@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
 import re
 import math
+import os
 from io import BytesIO
+from typing import Optional, List
 
 import pandas as pd
 from flask import Flask, request, render_template_string, send_file
 
-# =====================================================================================
-# ---------------------------------   CONFIG UI   -------------------------------------
-# =====================================================================================
-
+# ================= UI / CSS =================
 CSS = r"""
 <style>
 :root{
@@ -40,7 +39,7 @@ li{margin:0.1rem 0}
 .empty{color:#9CA3AF;}  /* tiret gris */
 .hit{color:#c00; font-weight:700}
 
-/* Largeurs : appliquer .col-s / .col-m / .col-l / .col-xl à <th> et <td> */
+/* Largeurs */
 .col-s { width:var(--w-s);  min-width:var(--w-s)}
 .col-m { width:var(--w-m);  min-width:var(--w-m)}
 .col-l { width:var(--w-l);  min-width:var(--w-l)}
@@ -48,7 +47,6 @@ li{margin:0.1rem 0}
 </style>
 """
 
-# Classes de largeur par colonne (libre à toi d’ajuster)
 WIDTH_CLASS = {
     # scalaires
     "Nom de l'intimé": "col-l",
@@ -68,8 +66,7 @@ WIDTH_CLASS = {
     "À vérifier": "col-l",
     "Date de création": "col-m",
     "Date de mise à jour": "col-m",
-
-    # “listes”
+    # colonnes listes
     "Résumé des faits concis": "col-xl",
     "Liste des chefs et articles en infraction": "col-xl",
     "Liste des sanctions imposées": "col-l",
@@ -77,7 +74,6 @@ WIDTH_CLASS = {
     "Autres mesures ordonnées": "col-l",
 }
 
-# Colonnes rendues en liste à puces
 LIST_COLUMNS = {
     "Résumé des faits concis",
     "Liste des chefs et articles en infraction",
@@ -89,7 +85,6 @@ LIST_COLUMNS = {
     "À vérifier",
 }
 
-# Colonnes d’intérêt pour “segment uniquement”
 INTEREST_COLS = [
     "Résumé des faits concis",
     "Liste des chefs et articles en infraction",
@@ -97,33 +92,27 @@ INTEREST_COLS = [
     "Liste des sanctions imposées",
 ]
 
-# Colonnes utilisées pour filtrer les lignes contenant l’article
 FILTER_COLS = INTEREST_COLS
 
 EMPTY_SPAN = "<span class='empty'>—</span>"
 
-# =====================================================================================
-# ---------------------------------  UTILITAIRES  -------------------------------------
-# =====================================================================================
-
+# =============== Utilitaires ===============
 def _safe_str(x) -> str:
     if x is None or (isinstance(x, float) and math.isnan(x)):
         return ""
     return str(x).strip()
 
 def _esc(text: str) -> str:
-    """Échappe <, >, & pour éviter toute interprétation HTML non voulue"""
     return (text.replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;"))
 
 def fmt_amount(x) -> str:
-    """Format 0 -> 0 $, 5000 -> 5 000 $"""
     s = _safe_str(x)
     if s == "":
         return ""
     try:
-        val = float(str(s).replace(" ", "").replace("\xa0",""))
+        val = float(str(s).replace(" ", "").replace("\xa0","").replace("$",""))
         if abs(val) < 0.005:
             return "0 $"
         ints = f"{int(round(val)):,.0f}".replace(",", " ").replace("\xa0"," ")
@@ -132,13 +121,11 @@ def fmt_amount(x) -> str:
         return s
 
 def highlight(html_escaped_text: str, pattern: re.Pattern) -> str:
-    """Sur du texte DÉJÀ échappé, ajoute <span class='hit'>…</span> sur les matches."""
     if not html_escaped_text:
         return ""
-    return pattern.sub(lambda m: f"<span class='hit'>{m.group(0)}</span>", html_escaped_text)
+    return pattern.sub(lambda m: "<span class='hit'>{}</span>".format(m.group(0)), html_escaped_text)
 
-def split_items(text: str) -> list[str]:
-    """Découpe léger en items; prend en compte retours ligne, puces, point-virgule, ' - '."""
+def split_items(text: str) -> List[str]:
     if not text:
         return []
     t = text.replace("•", "\n").replace("\r", "\n")
@@ -147,73 +134,59 @@ def split_items(text: str) -> list[str]:
     return parts if parts else [text.strip()]
 
 def to_bullets(text: str, bulletize: bool) -> str:
-    """Rend en <ul><li> si bulletize=True et qu'il y a plusieurs items."""
     if not text:
         return ""
     items = split_items(text)
     if not bulletize or len(items) == 1:
         return items[0]
-    lis = "\n".join(f"<li>{i}</li>" for i in items)
-    return f"<ul>{lis}</ul>"
+    lis = "\n".join("<li>{}</li>".format(i) for i in items)
+    return "<ul>{}</ul>".format(lis)
 
 def render_cell(value: str, column_name: str, show_only_segment: bool, pattern: re.Pattern) -> str:
     raw = _safe_str(value)
 
-    # Excel et UI : formater les amendes
     if column_name == "Total amendes":
         raw = fmt_amount(raw)
 
-    # Échapper avant surlignage (sécurité)
     raw_esc = _esc(raw)
 
-    # Option "segment uniquement" pour les 4 colonnes d'intérêt
     if show_only_segment and column_name in INTEREST_COLS:
         items = split_items(raw_esc)
         items = [highlight(x, pattern) for x in items if pattern.search(x)]
         raw_esc = "\n".join(items)
 
-    # Surlignage (même si segment_only = False)
     raw_esc = highlight(raw_esc, pattern)
 
-    # Puces uniquement pour LIST_COLUMNS
     is_list_col = column_name in LIST_COLUMNS
     html = to_bullets(raw_esc, bulletize=is_list_col)
 
-    # Classe pour supprimer les puces visuelles sur les scalaires
     cls = "" if is_list_col else " no-bullets"
     display = html if html else EMPTY_SPAN
     return '<div class="{}">{}</div>'.format(cls.strip(), display)
 
 def build_html_table(df: pd.DataFrame, article: str, show_only_segment: bool) -> str:
-    # Pattern strict : l’article ne doit pas être au milieu d’un nombre
     token = re.escape(article.strip())
-    pattern = re.compile(rf"(?<!\d){token}(?!\d)", flags=re.IGNORECASE)
+    pattern = re.compile(r"(?<!\d){}(?!\d)".format(token), flags=re.IGNORECASE)
 
     headers = list(df.columns)
 
     out = [CSS, '<div class="viewport"><table>']
-    # thead
     out.append("<thead><tr>")
     for h in headers:
         cls = WIDTH_CLASS.get(h, "col-m")
-        out.append(f'<th class="{cls}">{_esc(h)}</th>')
+        out.append('<th class="{}">{}</th>'.format(cls, _esc(h)))
     out.append("</tr></thead>")
 
-    # tbody
     out.append("<tbody>")
     for _, row in df.iterrows():
         out.append("<tr>")
         for h in headers:
             cls = WIDTH_CLASS.get(h, "col-m")
             cell = render_cell(row.get(h, ""), h, show_only_segment=show_only_segment, pattern=pattern)
-            out.append(f'<td class="{cls}">{cell}</td>')
+            out.append('<td class="{}">{}</td>'.format(cls, cell))
         out.append("</tr>")
     out.append("</tbody></table></div>")
     return "\n".join(out)
-
-# =====================================================================================
-# ---------------------------------  EXCEL EXPORT  ------------------------------------
-# =====================================================================================
 
 def dataframe_to_excel(df: pd.DataFrame, article: str) -> BytesIO:
     bio = BytesIO()
@@ -224,34 +197,38 @@ def dataframe_to_excel(df: pd.DataFrame, article: str) -> BytesIO:
     with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
         out.to_excel(xw, index=False, startrow=1, sheet_name="Résultat")
         ws = xw.sheets["Résultat"]
-        ws.write(0, 0, f"Article filtré : {article}")
-        ws.freeze_panes(2, 0)  # fige la ligne d’en-têtes (ligne 2 réelle)
-
-        # largeur auto simple
+        ws.write(0, 0, "Article filtré : {}".format(article))
+        ws.freeze_panes(2, 0)
         for col_idx, col_name in enumerate(out.columns):
             width = max(12, min(60, int(out[col_name].astype(str).map(len).max() * 1.1)))
             ws.set_column(col_idx, col_idx, width)
-
     bio.seek(0)
     return bio
 
-# =====================================================================================
-# ---------------------------------   FLASK APP   -------------------------------------
-# =====================================================================================
-
+# ================= Flask =================
 app = Flask(__name__)
-_last_excel: BytesIO | None = None
-_last_table: str = ""
+_last_excel = None  # type: Optional[BytesIO]
+_last_table = ""    # type: str
+_last_article = "29"
+_last_only = False
+_last_error = ""
 
 TEMPLATE = """
 <!doctype html>
 <meta charset="utf-8">
 <title>Analyseur Discipline – Filtrage par article</title>
 {{ css|safe }}
+
 <div class="note">
   Règles : détection exacte de l’article. Si la 1<sup>re</sup> cellule contient
   « <b>Article filtré :</b> », on ignore la 1<sup>re</sup> ligne (lignes d’en-têtes sur la 2<sup>e</sup>).
 </div>
+
+{% if error %}
+  <div class="note" style="border-color:#fca5a5;background:#fee2e2">
+    <b>Erreur :</b> {{ error }}
+  </div>
+{% endif %}
 
 <form method="post" enctype="multipart/form-data">
   <div>
@@ -281,7 +258,6 @@ TEMPLATE = """
 """
 
 def _clean_first_header_row(df: pd.DataFrame) -> pd.DataFrame:
-    """Si la 1ʳᵉ ligne contient 'Article filtré :', on l’ignore (ligne descriptive)."""
     if not df.empty:
         first_cell = str(df.iloc[0, 0]).strip().lower()
         if first_cell.startswith("article filtré"):
@@ -289,48 +265,54 @@ def _clean_first_header_row(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _filter_on_article(df: pd.DataFrame, article: str) -> pd.DataFrame:
-    if not article.strip():
+    art = article.strip()
+    if not art:
         return df.copy()
-
-    token = re.escape(article.strip())
-    pat = rf"(?<!\d){token}(?!\d)"  # même logique que pour l’affichage
-
+    token = re.escape(art)
+    pat = r"(?<!\d){}(?!\d)".format(token)
     present = [c for c in FILTER_COLS if c in df.columns]
     if not present:
         return df.copy()
-
     mask = pd.Series(False, index=df.index)
     for c in present:
         col = df[c].astype(str).fillna("")
         mask = mask | col.str.contains(pat, case=False, regex=True)
-
     return df[mask].copy()
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global _last_excel, _last_table
+    global _last_excel, _last_table, _last_article, _last_only, _last_error
 
     table = ""
-    article = (request.form.get("article") or "29").strip()
-    only = bool(request.form.get("only"))
+    error = ""
+    article = (request.form.get("article") or _last_article or "29").strip()
+    only = bool(request.form.get("only")) if request.method == "POST" else _last_only
 
     if request.method == "POST" and "file" in request.files and request.files["file"].filename:
-        f = request.files["file"]
-        # Lis l’Excel
-        df = pd.read_excel(f, engine="openpyxl")
-        df = _clean_first_header_row(df)
-        df = _filter_on_article(df, article)
+        try:
+            f = request.files["file"]
+            # openpyxl prend en charge .xlsx et .xlsm
+            df = pd.read_excel(f, engine="openpyxl")
+            df = _clean_first_header_row(df)
+            df = _filter_on_article(df, article)
 
-        # Affichage HTML + Excel
-        table = build_html_table(df, article=article, show_only_segment=only)
-        _last_table = table
-        _last_excel = dataframe_to_excel(df, article)
+            table = build_html_table(df, article=article, show_only_segment=only)
+            _last_table = table
+            _last_excel = dataframe_to_excel(df, article)
+            _last_article = article
+            _last_only = only
+            _last_error = ""
+        except Exception as e:
+            error = "Échec de l’analyse : {}".format(e)
+            _last_error = error
 
-    # GET ou POST sans fichier : si on a déjà un tableau, on le remonte
     if not table and _last_table:
         table = _last_table
+        article = _last_article
+        only = _last_only
+        error = _last_error
 
-    return render_template_string(TEMPLATE, css=CSS, table=table, article=article, only=only)
+    return render_template_string(TEMPLATE, css=CSS, table=table, article=article, only=only, error=error)
 
 @app.route("/download")
 def download():
@@ -341,3 +323,8 @@ def download():
                      as_attachment=True,
                      download_name="resultat.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+if __name__ == "__main__":
+    # Démarrage local
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
