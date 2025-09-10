@@ -1,49 +1,130 @@
 # -*- coding: utf-8 -*-
-import io
 import re
-import os
 import math
-import secrets
-from typing import Dict
+import os
+from io import BytesIO
+from typing import Optional
 
 import pandas as pd
-from flask import Flask, render_template, request, send_file, redirect, url_for, session
+from flask import Flask, render_template, request, send_file, redirect, url_for, flash
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(16))
-app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB
+app.secret_key = os.environ.get("FLASK_SECRET", "dev-key")
 
-EXCEL_STORE: Dict[str, bytes] = {}
-
-# ========================= UI / CSS (table) =========================
+# ==========================================================
+# ---------------------  UI / CSS  -------------------------
+# ==========================================================
 CSS = r"""
 <style>
 :root{
-  --w-s: 8.5rem; --w-m: 12rem; --w-l: 18rem; --w-xl: 26rem;
+  --w-s: 8.5rem;     /* étroit  */
+  --w-m: 12rem;      /* moyen   */
+  --w-l: 18rem;      /* large   */
+  --w-xl: 26rem;     /* très large */
 }
+
 *{box-sizing:border-box}
-body{font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
-.note{background:#fff8e6;border:1px solid #ffd48a;padding:8px 10px;border-radius:8px;margin:8px 0 14px}
-.viewport{height:60vh;overflow:auto;border:1px solid #ddd}
+html, body { height: 100%; }
+body{
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  margin:0;
+  background:#f7fafc;
+  color:#0f172a;
+}
 
+/* ------- header note ------- */
+.note{
+  background:#fff8e6;border:1px solid #ffd48a;
+  padding:12px 14px;border-radius:10px;margin:16px 0 18px
+}
+
+/* ------- full width page ------- */
+.page{
+  width:100%;
+  max-width: none;
+  padding:24px 24px 60px;
+}
+
+/* ------- toolbar (article + file + button) ------- */
+.toolbar{
+  background:#fff;border:1px solid #e5e7eb;border-radius:12px;
+  padding:16px; display:grid; gap:14px;
+  grid-template-columns: 1fr max-content;
+  align-items:end;
+}
+.toolbar .left{display:grid; gap:10px}
+.toolbar .filebar{display:flex; align-items:center; gap:10px}
+.toolbar .right{display:flex; gap:10px; align-items:center}
+
+/* button + inputs  */
+input[type="text"]{
+  width:100%; height:42px; border:1px solid #cbd5e1; border-radius:9px;
+  padding:0 12px; font-size:15px; background:#fff;
+}
+input[type="file"]{ border:1px dashed #cbd5e1; padding:8px 10px; border-radius:8px; background:#fff}
+button{
+  height:42px; padding:0 18px; border:0; border-radius:10px; cursor:pointer;
+  background:#0ea5e9; color:#fff; font-weight:600; font-size:15px;
+}
+button.secondary{ background:#e5e7eb; color:#111827 }
+
+/* ------- table viewport ------- */
+.viewport{
+  width:100%;
+  border:1px solid #e5e7eb; background:#fff;
+  border-radius:12px; margin-top:14px;
+  overflow:auto;  /* scroll if needed */
+  max-height: 75vh;
+}
+
+/* table */
 table{width:100%; border-collapse:collapse; table-layout:fixed;}
-th,td{border:1px solid #e5e7eb; padding:6px 8px; vertical-align:top; white-space:normal; word-break:normal; overflow-wrap:anywhere; hyphens:auto}
-th{position:sticky; top:0; background:#f8fafc; z-index:1; font-weight:600; text-align:center;}
+th,td{
+  border:1px solid #e5e7eb; padding:8px 10px; vertical-align:top;
+  white-space:normal; word-break:normal; overflow-wrap:anywhere; hyphens:auto;
+}
+th{position:sticky; top:0; background:#f8fafc; z-index:2; font-weight:700; text-align:center}
 
+/* bullets */
 ul{margin:0; padding-left:1.05rem}
-li{margin:0.1rem 0}
+li{margin:0.08rem 0}
 .no-bullets ul{list-style:none; padding-left:0; margin:0}
-.empty{color:#9CA3AF;}
+
+/* empty dash */
+.empty{color:#9CA3AF}
+
+/* red hit */
 .hit{color:#c00; font-weight:700}
 
+/* column width helpers */
 .col-s { width:var(--w-s);  min-width:var(--w-s)}
 .col-m { width:var(--w-m);  min-width:var(--w-m)}
 .col-l { width:var(--w-l);  min-width:var(--w-l)}
 .col-xl{ width:var(--w-xl); min-width:var(--w-xl)}
+
+/* download row */
+.actions{margin:10px 0 6px}
+
+/* spinner overlay */
+#busy{
+  display:none; position:fixed; inset:0; backdrop-filter:saturate(60%) blur(1px);
+  background:rgba(255,255,255,.6); align-items:center; justify-content:center; z-index:50
+}
+.spin{
+  width:42px; height:42px; border-radius:999px; border:4px solid #38bdf8; border-top-color:transparent;
+  animation:rot .9s linear infinite
+}
+@keyframes rot{to{transform:rotate(360deg)}}
 </style>
 """
 
+# ==========================================================
+# -------------  Columns & rendering options  --------------
+# ==========================================================
+
+# Screen width classes per header (adjust freely)
 WIDTH_CLASS = {
+    # scalaires
     "Nom de l'intimé": "col-l",
     "Ordre professionnel": "col-l",
     "Numéro de la décision": "col-m",
@@ -51,58 +132,70 @@ WIDTH_CLASS = {
     "Nature de la décision": "col-m",
     "Période des faits": "col-m",
     "Plaidoyer de culpabilité": "col-s",
-    "Nbr Chefs par articles": "col-m",
     "Total chefs": "col-s",
     "Radiation max": "col-s",
-    "Nombre de chefs par articles et total amendes": "col-l",
     "Total amendes": "col-m",
-    "Nombre de chefs par article ayant une réprimande": "col-l",
     "Total réprimandes": "col-s",
     "À vérifier": "col-l",
     "Date de création": "col-m",
     "Date de mise à jour": "col-m",
 
+    # listes
     "Résumé des faits concis": "col-xl",
     "Liste des chefs et articles en infraction": "col-xl",
-    "Liste des sanctions imposées": "col-l",
+    "Nbr Chefs par articles": "col-l",
     "Nbr Chefs par articles par période de radiation": "col-l",
+    "Liste des sanctions imposées": "col-l",
+    "Nombre de chefs par articles et total amendes": "col-l",
+    "Nombre de chefs par article ayant une réprimande": "col-l",
     "Autres mesures ordonnées": "col-l",
 }
 
-# Colonnes qui s’affichent en puces
+# Columns rendered as bullet lists when they contain multiple items
 LIST_COLUMNS = {
     "Résumé des faits concis",
     "Liste des chefs et articles en infraction",
     "Nbr Chefs par articles",
     "Nbr Chefs par articles par période de radiation",
     "Liste des sanctions imposées",
+    "Nombre de chefs par articles et total amendes",
     "Nombre de chefs par article ayant une réprimande",
     "Autres mesures ordonnées",
     "À vérifier",
 }
 
-# Colonnes d’intérêt (filtrage + surlignage HTML + surlignage Excel)
-INTEREST_COLS = [
-    "Résumé des faits concis",
-    "Liste des chefs et articles en infraction",
+# ---- Interest columns (only these are highlighted & filtered when checkbox is on)
+INTEREST_COLS = {
     "Nbr Chefs par articles",
+    "Nbr Chefs par articles par période de radiation",
+    "Nombre de chefs par articles et total amendes",
+    "Nombre de chefs par article ayant une réprimande",
+}
+
+# columns that must never be highlighted (explicit list, your #2)
+NO_HILITE_COLS = {
+    "Liste des chefs et articles en infraction",
     "Liste des sanctions imposées",
-]
+}
 
 EMPTY_SPAN = "<span class='empty'>—</span>"
 
-# ========================= Utils =========================
+# ==========================================================
+# ----------------  Text utils & rendering  ----------------
+# ==========================================================
+
 def _safe_str(x) -> str:
     if x is None or (isinstance(x, float) and math.isnan(x)):
         return ""
     return str(x).strip()
 
 def fmt_amount(x) -> str:
+    """Format 0 -> 0 $, 5000 -> 5 000 $"""
     s = _safe_str(x)
     if s == "":
         return ""
     try:
-        val = float(str(s).replace(" ", "").replace("\xa0",""))
+        val = float(str(s).replace(" ", "").replace("\xa0", ""))
         if abs(val) < 0.005:
             return "0 $"
         ints = f"{int(round(val)):,.0f}".replace(",", " ").replace("\xa0"," ")
@@ -110,20 +203,23 @@ def fmt_amount(x) -> str:
     except Exception:
         return s
 
-def highlight(text: str, pattern: re.Pattern) -> str:
+def split_items(text: str) -> list[str]:
+    """Split into items, preserving simple punctuation."""
+    if not text:
+        return []
+    t = text.replace("•", "\n").replace("\r", "\n")
+    parts = re.split(r"\n|;|\u2022| - |\t", t)
+    parts = [p.strip(" •\t") for p in parts if p and p.strip(" •\t")]
+    return parts if parts else [text.strip()]
+
+def highlight_inside(text: str, pattern: re.Pattern) -> str:
+    """Return HTML with <span class='hit'> around matches."""
     if not text:
         return ""
     return pattern.sub(lambda m: f'<span class="hit">{m.group(0)}</span>', text)
 
-def split_items(text: str) -> list[str]:
-    if not text:
-        return []
-    t = text.replace("•", "\n").replace("\r", "\n")
-    parts = re.split(r"\n|;|\u2022|- ", t)
-    parts = [p.strip(" •\t") for p in parts if p and p.strip(" •\t")]
-    return parts if parts else [text.strip()]
-
 def to_bullets(text: str, bulletize: bool) -> str:
+    """Render in <ul><li>… if bulletize=True and multiple items."""
     if not text:
         return ""
     items = split_items(text)
@@ -132,28 +228,42 @@ def to_bullets(text: str, bulletize: bool) -> str:
     lis = "\n".join(f"<li>{p}</li>" for p in items)
     return f"<ul>{lis}</ul>"
 
-def render_cell(value: str, column_name: str, show_only_segment: bool, pattern: re.Pattern) -> str:
+def render_cell(value: str, column_name: str, only_segment: bool, pattern: re.Pattern) -> str:
+    """
+    HTML rendering of a cell with the rules requested.
+    - Highlight only in INTEREST_COLS (never in NO_HILITE_COLS).
+    - When only_segment=True, keep only the items that contain the article,
+      but only for INTEREST_COLS (your checkbox rule).
+    """
     raw = _safe_str(value)
 
+    # Money formatting
     if column_name == "Total amendes":
         raw = fmt_amount(raw)
 
-    if show_only_segment and column_name in INTEREST_COLS:
+    # Segment filtering (checkbox) only for the 4 interest columns
+    if only_segment and column_name in INTEREST_COLS:
         items = split_items(raw)
-        items = [highlight(x, pattern) for x in items if pattern.search(x)]
+        items = [x for x in items if pattern.search(x)]
         raw = "\n".join(items)
 
-    # ✅ Surlignage HTML UNIQUEMENT dans les 4 colonnes d’intérêt
-    if column_name in INTEREST_COLS:
-        raw = highlight(raw, pattern)
+    # Highlighting:
+    if column_name in NO_HILITE_COLS:
+        highlighted = raw                       # never highlight in the 2 excluded columns
+    elif column_name in INTEREST_COLS:
+        highlighted = highlight_inside(raw, pattern)   # highlight only in the 4 interest columns
+    else:
+        highlighted = raw                       # other columns: no highlight
 
+    # Bullets?
     is_list_col = column_name in LIST_COLUMNS
-    html = to_bullets(raw, bulletize=is_list_col)
+    html = to_bullets(highlighted, bulletize=is_list_col)
 
     cls = "" if is_list_col else " no-bullets"
-    return f'<div class="{cls.strip()}">{html or EMPTY_SPAN}</div>'
+    display = html if html else EMPTY_SPAN
+    return f'<div class="{cls.strip()}">{display}</div>'
 
-def build_html_table(df: pd.DataFrame, article: str, show_only_segment: bool) -> str:
+def build_html_table(df: pd.DataFrame, article: str, only_segment: bool) -> str:
     token = re.escape(article.strip())
     pattern = re.compile(rf"(?<!\d){token}(?!\d)", flags=re.IGNORECASE)
 
@@ -171,160 +281,167 @@ def build_html_table(df: pd.DataFrame, article: str, show_only_segment: bool) ->
         html.append("<tr>")
         for h in headers:
             cls = WIDTH_CLASS.get(h, "col-m")
-            cell = render_cell(row.get(h, ""), h, show_only_segment=show_only_segment, pattern=pattern)
+            cell = render_cell(row.get(h, ""), h, only_segment, pattern)
             html.append(f'<td class="{cls}">{cell}</td>')
         html.append("</tr>")
     html.append("</tbody></table></div>")
     return "\n".join(html)
 
-# ========================= Excel I/O =========================
-def read_first_sheet_detect_header(b: bytes) -> pd.DataFrame:
-    bio = io.BytesIO(b)
-    xls = pd.ExcelFile(bio, engine="openpyxl")
-    tmp = pd.read_excel(xls, sheet_name=0, header=None)
-    header_row = 1 if tmp.iloc[0, 0] and str(tmp.iloc[0, 0]).strip().lower().startswith("article filtré") else 0
-    df = pd.read_excel(xls, sheet_name=0, header=header_row)
-    df = df.dropna(axis=1, how="all")
-    return df
+# ==========================================================
+# ----------------  Excel export with hits  ----------------
+# ==========================================================
 
-def filter_by_article(df: pd.DataFrame, article: str) -> pd.DataFrame:
+def write_excel_with_hits(df: pd.DataFrame, article: str, only_segment: bool) -> BytesIO:
+    """
+    Export Excel:
+      - wrap text + top alignment
+      - highlight matches inside the cell ONLY in INTEREST_COLS
+      - never highlight in NO_HILITE_COLS
+      - apply 'only segment' logic only for INTEREST_COLS
+    """
     token = re.escape(article.strip())
     pattern = re.compile(rf"(?<!\d){token}(?!\d)", flags=re.IGNORECASE)
 
-    cols = [c for c in INTEREST_COLS if c in df.columns] or list(df.columns)
-
-    def row_match(s):
-        return any(pattern.search(_safe_str(s.get(c, ""))) for c in cols)
-
-    mask = df.apply(row_match, axis=1)
-    return df.loc[mask].reset_index(drop=True)
-
-def produce_excel_bytes(df: pd.DataFrame, article: str) -> bytes:
-    """Export XLSX :
-       - ligne 1 : 'Article filtré : X'
-       - entêtes figées
-       - wrap + valign top partout
-       - surlignage PARTIEL (rich text) de l’article dans les 4 colonnes d’intérêt.
-    """
     out = df.copy()
     if "Total amendes" in out.columns:
         out["Total amendes"] = out["Total amendes"].map(fmt_amount)
 
-    token = re.escape(article.strip())
-    pattern = re.compile(rf"(?<!\d){token}(?!\d)", flags=re.IGNORECASE)
-
-    bio = io.BytesIO()
+    bio = BytesIO()
     with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
         out.to_excel(xw, index=False, startrow=1, sheet_name="Résultat")
-        wb = xw.book
-        ws = xw.sheets["Résultat"]
+        wb  = xw.book
+        ws  = xw.sheets["Résultat"]
 
+        # header row above the table
         ws.write(0, 0, f"Article filtré : {article}")
+
+        # formats
+        wrap_top = wb.add_format({"text_wrap": True, "valign": "top"})
+        hit_fmt  = wb.add_format({"color": "#cc0000", "bold": True})
+
+        # freeze header row
         ws.freeze_panes(2, 0)
 
-        wrap_top = wb.add_format({"text_wrap": True, "valign": "top"})
-        red_fmt  = wb.add_format({"font_color": "#c00000", "bold": True})
+        # Write back each interest cell with rich string (so we can color only matches)
+        headers = list(out.columns)
+        row_start = 2  # data starts here (because to_excel with startrow=1 + header row)
 
-        # Largeurs + format par défaut
-        for col_idx, col_name in enumerate(out.columns):
-            maxlen = max(12, int(out[col_name].astype(str).map(len).max() * 1.1))
-            width = max(12, min(60, maxlen))
-            ws.set_column(col_idx, col_idx, width, wrap_top)
-        for r in range(2, 2 + len(out)):
-            ws.set_row(r, None, wrap_top)
+        for r in range(len(out)):
+            for c, col in enumerate(headers):
+                txt = _safe_str(out.iat[r, c])
+                # apply 'segment only' for INTEREST_COLS
+                if only_segment and col in INTEREST_COLS:
+                    items = split_items(txt)
+                    items = [x for x in items if pattern.search(x)]
+                    txt = "\n".join(items)
 
-        # ======= Surlignage partiel (rich text) sur 4 colonnes d’intérêt =======
-        for name in INTEREST_COLS:
-            if name not in out.columns:
-                continue
-            c = out.columns.get_loc(name)
-            for i in range(len(out)):
-                text = _safe_str(out.iat[i, c])
-                if not text:
+                # For non-interest columns: just ensure wrap/top (except we will replace anyway with rich if matches)
+                # We rewrite *every* cell so that wrap/top is guaranteed consistently
+                if (col in NO_HILITE_COLS) or (col not in INTEREST_COLS):
+                    ws.write(row_start + r, c, txt, wrap_top)
                     continue
-                # Cherche des matches
-                matches = list(pattern.finditer(text))
-                if not matches:
-                    continue  # déjà écrit par pandas + format wrap_top
 
-                # Construit la séquence pour write_rich_string
-                parts = []
-                pos = 0
-                for m in matches:
-                    if m.start() > pos:
-                        parts.append(text[pos:m.start()])
-                    parts.append(red_fmt)
-                    parts.append(m.group(0))
-                    pos = m.end()
-                if pos < len(text):
-                    parts.append(text[pos:])
+                # Interest columns: highlight inside cell using rich string
+                if not txt:
+                    ws.write(row_start + r, c, "", wrap_top)
+                    continue
 
-                # Réécrit la cellule en "rich string"
-                # Ligne Excel = data commence à row 2 (0-based)
-                ws.write_rich_string(2 + i, c, *parts, wrap_top)
+                parts = pattern.split(txt)
+                hits  = pattern.findall(txt)
+
+                if hits:
+                    # interleave normal text and highlighted matches
+                    payload = []
+                    for i, part in enumerate(parts):
+                        if part:
+                            payload.append(part)
+                        if i < len(hits):
+                            payload.append(hit_fmt)
+                            payload.append(hits[i])
+                    ws.write_rich_string(row_start + r, c, *payload, wrap_top)
+                else:
+                    ws.write(row_start + r, c, txt, wrap_top)
+
+        # Auto width (bounded)
+        for col_idx, col_name in enumerate(headers):
+            src = out[col_name].astype(str)
+            est = int(src.map(len).max() * 1.05) if len(src) else 12
+            ws.set_column(col_idx, col_idx, max(12, min(60, est)))
 
     bio.seek(0)
-    return bio.getvalue()
+    return bio
 
-# ========================= Routes =========================
-@app.route("/", methods=["GET", "POST"])
-def index():
-    ctx = dict(error=None, table_html=None, article=None, segment_only=False)
+# ==========================================================
+# ----------------------  Helpers  -------------------------
+# ==========================================================
 
-    if request.method == "POST":
-        try:
-            article = (request.form.get("article") or "").strip()
-            if not article:
-                ctx["error"] = "Veuillez saisir un article (ex. 29, 59(2))."
-                return render_template("index.html", **ctx)
+def read_uploaded_excel(fp) -> pd.DataFrame:
+    """Read the uploaded Excel and return the dataframe you display.
+       (This assumes your workbook already has the expected columns.)
+    """
+    # the user already confirmed everything works here with the current file,
+    # so simply read the first sheet as before:
+    return pd.read_excel(fp)
 
-            segment_only = bool(request.form.get("segment_only"))
-            f = request.files.get("file")
-            if not f or not f.filename:
-                ctx["error"] = "Veuillez joindre un fichier Excel (.xlsx / .xlsm)."
-                return render_template("index.html", **ctx)
+# ==========================================================
+# ---------------------  Flask views  ----------------------
+# ==========================================================
 
-            raw = f.read()
-            df_all = read_first_sheet_detect_header(raw)
-            df = filter_by_article(df_all, article)
+_latest_excel: Optional[BytesIO] = None
+_latest_filename: str = "resultat.xlsx"
 
-            if df.empty:
-                ctx.update(error=f"Aucune ligne ne contient l’article « {article} » dans les colonnes cibles.",
-                           article=article, segment_only=segment_only)
-                return render_template("index.html", **ctx)
+@app.route("/", methods=["GET"])
+def home():
+    return render_template("index.html", table_html=None, css=CSS)
 
-            html = build_html_table(df, article=article, show_only_segment=segment_only)
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    global _latest_excel, _latest_filename
 
-            xls_bytes = produce_excel_bytes(df, article)
-            token = secrets.token_urlsafe(16)
-            EXCEL_STORE[token] = xls_bytes
-            session["dl_token"] = token
+    article = request.form.get("article", "").strip()
+    only_segment = request.form.get("only_segment") == "on"
+    file = request.files.get("file")
 
-            ctx.update(table_html=html, article=article, segment_only=segment_only)
-            return render_template("index.html", **ctx)
+    if not article:
+        flash("Veuillez saisir un article.", "error")
+        return redirect(url_for("home"))
+    if not file or not file.filename:
+        flash("Veuillez choisir un fichier Excel (.xlsx / .xlsm).", "error")
+        return redirect(url_for("home"))
 
-        except Exception as e:
-            ctx["error"] = f"Échec de l’analyse : {e}"
-            return render_template("index.html", **ctx)
+    try:
+        df = read_uploaded_excel(file)
+    except Exception as e:
+        flash(f"Erreur de lecture Excel : {e}", "error")
+        return redirect(url_for("home"))
 
-    token = session.get("dl_token")
-    if token and token in EXCEL_STORE:
-        pass
-    return render_template("index.html", **ctx)
+    # Build HTML table
+    table_html = build_html_table(df, article=article, only_segment=only_segment)
 
-@app.route("/download")
+    # Build Excel
+    try:
+        bio = write_excel_with_hits(df, article=article, only_segment=only_segment)
+    except Exception as e:
+        flash(f"Erreur lors de la création Excel : {e}", "error")
+        return render_template("index.html", table_html=table_html, css=CSS)
+
+    _latest_excel = bio
+    _latest_filename = f"Article_{article}.xlsx"
+
+    return render_template("index.html", table_html=table_html, css=CSS)
+
+@app.route("/download", methods=["GET"])
 def download():
-    token = session.get("dl_token")
-    if not token or token not in EXCEL_STORE:
-        return redirect(url_for("index"))
-    data = EXCEL_STORE[token]
+    if _latest_excel is None:
+        flash("Aucun résultat à télécharger.", "error")
+        return redirect(url_for("home"))
+    _latest_excel.seek(0)
     return send_file(
-        io.BytesIO(data),
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _latest_excel,
         as_attachment=True,
-        download_name="resultat.xlsx",
+        download_name=_latest_filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=8000, debug=False)
