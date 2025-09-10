@@ -1,6 +1,8 @@
-flask
-pandas
-openpyxl
+Flask~=3.0
+pandas~=2.2
+openpyxl~=3.1
 tabulate
-gunicorn
-xlsxwriter
+gunicorn~=22.0
+XlsxWriter~=3.2
+numpy~=1.26
+MarkupSafe>=2.1.1
