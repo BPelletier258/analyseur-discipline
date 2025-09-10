@@ -175,11 +175,8 @@ def render_cell(
       - surlignage de l'article recherché,
       - rendu en liste à puces pour les colonnes de type liste,
       - valeur vide affichée comme un tiret gris.
-
-    Dépend de : _safe_str, fmt_amount, split_items, highlight, to_bullets,
-                LIST_COLUMNS, INTEREST_COLS, EMPTY_SPAN.
     """
-    # Normalisation de la valeur brute
+    # 0) Normalisation de la valeur brute
     raw = _safe_str(value)
 
     # 1) Mise en forme des amendes
@@ -193,16 +190,16 @@ def render_cell(
         raw = "\n".join(items)
 
     # 3) Surlignage (après éventuel filtrage)
-         raw = html_highlight(raw, pattern, column_name)
+    raw = html_highlight(raw, pattern, column_name)
 
     # 4) Rendu : liste à puces seulement pour les colonnes prévues
-    is_list_col = column_name in LIST_COLUMNS
+    is_list_col = (column_name in LIST_COLUMNS)
     html = to_bullets(raw, bulletize=is_list_col)
 
     # 5) Classe CSS pour enlever les puces ailleurs
     cls = "" if is_list_col else " no-bullets"
 
-    # 6) ✅ Pas de backslash dans l'expression d'un f-string
+    # 6) Affichage vide → tiret gris
     display = html if html else EMPTY_SPAN
     return f'<div class="{cls.strip()}">{display}</div>'
 
