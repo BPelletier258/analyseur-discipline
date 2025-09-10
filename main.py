@@ -4,7 +4,8 @@ import math
 from io import BytesIO
 
 import pandas as pd
-from flask import Flask, render_template, request, send_file, Markup
+from flask import Flask, render_template, request, send_file
+from markupsafe import Markup
 
 app = Flask(__name__)
 
