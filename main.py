@@ -115,7 +115,7 @@ WIDTH_CLASS = {
     "Nbr Chefs par articles par période de radiation": "col-l",
     "Autres mesures ordonnées": "col-l",
 }
-
+EMPTY_SPAN = "<span class='empty'>—</span>"
 # ============== Utils ==============
 
 def _safe_str(x) -> str:
@@ -161,26 +161,51 @@ def html_highlight(text: str, pattern: re.Pattern, column: str) -> str:
         return text
     return pattern.sub(lambda m: f'<span class="hit">{m.group(0)}</span>', text)
 
-def render_cell(value: str, column_name: str, show_only_segment: bool, pattern: re.Pattern) -> str:
+def render_cell(
+    value: str,
+    column_name: str,
+    bulletize: bool,
+    show_only_segment: bool,
+    pattern: re.Pattern
+) -> str:
+    """
+    Rendu HTML d'une cellule, avec :
+      - formatage des montants ('Total amendes'),
+      - isolement éventuel du segment dans les colonnes d'intérêt,
+      - surlignage de l'article recherché,
+      - rendu en liste à puces pour les colonnes de type liste,
+      - valeur vide affichée comme un tiret gris.
+
+    Dépend de : _safe_str, fmt_amount, split_items, highlight, to_bullets,
+                LIST_COLUMNS, INTEREST_COLS, EMPTY_SPAN.
+    """
+    # Normalisation de la valeur brute
     raw = _safe_str(value)
 
-    # Format $ si c'est la colonne des amendes totales
+    # 1) Mise en forme des amendes
     if column_name == "Total amendes":
         raw = fmt_amount(raw)
 
-    # Si l’option “segment uniquement” est cochée : on ne garde que les items
-    # des 4 colonnes d’intérêt contenant l’article
+    # 2) Option "n'afficher que le segment contenant l'article"
     if show_only_segment and column_name in INTEREST_COLS:
-        items = [x for x in split_items(raw) if pattern.search(x)]
+        items = split_items(raw)
+        items = [x for x in items if pattern.search(x)]
         raw = "\n".join(items)
 
-    # Surlignage
-    raw = html_highlight(raw, pattern, column_name)
+    # 3) Surlignage (après éventuel filtrage)
+         raw = html_highlight(raw, pattern, column_name)
 
+    # 4) Rendu : liste à puces seulement pour les colonnes prévues
     is_list_col = column_name in LIST_COLUMNS
     html = to_bullets(raw, bulletize=is_list_col)
+
+    # 5) Classe CSS pour enlever les puces ailleurs
     cls = "" if is_list_col else " no-bullets"
-    return f'<div class="{cls.strip()}">{html or "<span class=\'empty\'>—</span>"}</div>'
+
+    # 6) ✅ Pas de backslash dans l'expression d'un f-string
+    display = html if html else EMPTY_SPAN
+    return f'<div class="{cls.strip()}">{display}</div>'
+
 
 def build_html_table(df: pd.DataFrame, article: str, show_only_segment: bool) -> str:
     token = re.escape(article.strip())
@@ -197,7 +222,14 @@ def build_html_table(df: pd.DataFrame, article: str, show_only_segment: bool) ->
     for _, row in df.iterrows():
         out.append("<tr>")
         for h in headers:
-            cell = render_cell(row.get(h, ""), h, show_only_segment, pattern)
+            cell = render_cell(
+              value=row.get(h, ""),
+              column_name=h,
+              bulletize=(h in LIST_COLUMNS),
+              show_only_segment=show_only_segment,
+              pattern=pattern
+            )
+
             out.append(f'<td class="{WIDTH_CLASS.get(h, "col-m")}">{cell}</td>')
         out.append("</tr>")
 
