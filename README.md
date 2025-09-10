@@ -1,130 +1,126 @@
-# 📊 Analyseur de Décisions Disciplinaires
+# Analyseur Discipline – Filtrage par article
 
-Ce projet propose une application web **Analyseur de Décisions Disciplinaires** permettant à l’utilisateur de rechercher un **article spécifique** dans un fichier Excel de décisions disciplinaires et d’en extraire :
-
-* Un **tableau HTML** interactif (avec occurrences du motif en rouge et gras)
-* Un **fichier Excel** formaté et téléchargeable
+Application Flask qui lit un fichier Excel (.xlsx / .xlsm), filtre les décisions disciplinaires par *article* et affiche le résultat en HTML avec possibilité d’export en Excel.
 
 ---
 
-## ✅ Fonctionnalités principales
+## Fonctionnalités
 
-* **Upload** d’un fichier Excel (.xlsx) contenant les colonnes obligatoires.
-* **Saisie** de l’article à filtrer (ex : `14`, `59(2)`, `2.01 a)`).
-* **Filtrage strict** : l’article recherché est mis en évidence en rouge **et en gras** **uniquement** dans quatre colonnes ciblées.
-* **Affichage HTML** des résultats :
-
-  * Statut (si présent)
-  * Numéro de décision
-  * Nom de l’intimé
-  * **Articles enfreints**
-  * **Durée totale effective radiation**
-  * **Article amende/chef**
-  * **Autres sanctions**
-  * **Résumé** (libellé « Résumé » cliquable)
-* **Export Excel** formaté :
-
-  * Ligne titre indiquant l’article filtré
-  * En‑têtes en **gras** sur fond gris pâle, bordures conservées
-  * Colonnes ajustées, **retours à la ligne automatiques**
-  * **Coloration rouge** dans les cellules des quatre colonnes suivantes lorsque l’article apparaît :
-
-    1. Articles enfreints
-    2. Durée totale effective radiation
-    3. Article amende/chef
-    4. Autres sanctions
-  * Colonne **Résumé** (libellé « Résumé ») avec lien hypertexte
-  * Nom du fichier : `decisions_filtrees_<ARTICLE>.xlsx` (ex : `decisions_filtrees_59(2).xlsx`)
+- **Recherche d’un article** (ex. `29`, `59(2)`).
+- **Filtrage strict des lignes** : on **ne garde que** les lignes où l’article recherché apparaît **dans au moins une des 4 colonnes d’intérêt** (voir ci-dessous).
+- **Option “Afficher uniquement le segment contenant l’article dans les 4 colonnes d’intérêt”** :
+  - Si cochée, dans ces 4 colonnes on **isole uniquement** les items contenant l’article (au lieu d’afficher le texte complet de la cellule).
+- **Mise en valeur (HTML & Excel)** :
+  - HTML : l’article est surligné (rouge) **uniquement** dans les 4 colonnes d’intérêt.
+  - Excel : l’article est surligné **à l’intérieur des cellules** (rich text) dans les 4 colonnes d’intérêt.
+- **Colonnes rendues en listes à puces** (lisibilité accrue).
+- **Formatage automatique des montants (“Total amendes”)** : `500` → `500 $`, `5000` → `5 000 $`.
+- **Export Excel propre** :
+  - Ligne 1 : `Article filtré : X`
+  - Ligne 2 : en-têtes stylés
+  - Fige la ligne d’en-têtes
+  - Retours à la ligne + alignement vertical en haut
+  - Largeurs ajustées automatiquement (max ~60)
 
 ---
 
-## 📁 Structure des fichiers
+## Colonnes d’intérêt
 
-```plaintext
-analyseur-discipline/
+Les **4 colonnes d’intérêt** (ciblées par l’option et par le surlignage) :
+
+1. `Nbr Chefs par articles`
+2. `Nbr Chefs par articles par période de radiation`
+3. `Nombre de chefs par articles et total amendes`
+4. `Nombre de chefs par article ayant une réprimande`
+
+> Le filtrage des lignes utilise **exclusivement ces 4 colonnes** : si l’article recherché n’apparaît dans **aucune** d’elles, la ligne est **exclue**.
+
+### Colonnes explicitement *non* surlignées (HTML)
+
+Même si l’article est présent, **pas** de surlignage rouge dans :
+- `Liste des chefs et articles en infraction`
+- `Liste des sanctions imposées`
+
+---
+
+## Colonnes rendues en puces
+
+Les cellules des colonnes ci-dessous sont rendues en **liste à puces** (HTML) lorsque plusieurs items sont détectés :
+
+- `Résumé des faits concis`
+- `Liste des chefs et articles en infraction`
+- `Nbr Chefs par articles`
+- `Nbr Chefs par articles par période de radiation`
+- `Liste des sanctions imposées`
+- `Nombre de chefs par article ayant une réprimande`
+- `Autres mesures ordonnées`
+- `À vérifier`
+
+---
+
+## Détection / entêtes
+
+- Si la **1re cellule** (A1) d’un fichier Excel contient `Article filtré :`, la **1re ligne** est considérée comme un bandeau (titre) et **ignorée** : les en-têtes sont donc sur la **2e ligne**.
+- Formats pris en charge : `.xlsx` et `.xlsm`.
+
+---
+
+## Installation locale
+
+**Prérequis** : Python 3.11+
+
+```bash
+python -m venv .venv
+source .venv/bin/activate     # (Windows: .venv\Scripts\activate)
+pip install -r requirements.txt
+
+Lancer l’app :
+
+python main.py
+
+
+Ouvrir http://localhost:8000/
+
+Déploiement
+
+Le projet contient un render.yaml prêt pour Render.com.
+Dépendances principales :
+
+Flask 3.x
+
+pandas
+
+openpyxl
+
+XlsxWriter
+
+markupsafe
+
+Utilisation
+
+Saisir l’article (ex. 29 ou 59(2)).
+
+(Optionnel) Cocher “Afficher uniquement le segment contenant l’article dans les 4 colonnes d’intérêt”.
+
+Sélectionner le fichier Excel.
+
+Cliquer Analyser.
+
+Visualiser le tableau HTML (pleine largeur, entêtes figées).
+
+Télécharger l’Excel via “Télécharger le résultat (Excel)”.
+
+Notes & limites
+
+Les “commentaires de cellule” (notes Excel natives) ne sont pas repris dans l’export (XlsxWriter ne lit pas les commentaires sources).
+Certaines informations de suivi se retrouvent toutefois souvent dans la colonne “À vérifier”.
+
+L’isolement des segments se fait via un découpage heuristique (puces, retours, ;, etc.).
+
+Structure
 ├─ templates/
-│  ├─ index.html       # Formulaire et page d’accueil (upload + saisie article)
-│  └─ resultats.html   # Affichage des résultats (tableaux HTML & lien de téléchargement)
-├─ main.py             # Application Flask principale
-├─ requirements.txt    # Dépendances Python
-├─ render.yaml         # Configuration Render pour le déploiement sur Render.com
-├─ README.md           # Documentation du projet
-└─ LICENSE             # Licence MIT
-```
-
----
-
-### Colonnes requises dans le fichier Excel
-
-| Nom interne                        | Description                          |
-| ---------------------------------- | ------------------------------------ |
-| `numero de decision`               | Numéro unique de la décision         |
-| `nom de l’intime`                  | Nom de la personne sanctionnée       |
-| `articles enfreints`               | Liste des articles enfreints         |
-| `duree totale effective radiation` | Durée totale effective de radiation  |
-| `article amende/chef`              | Montant d’amende ou chef de sanction |
-| `autres sanctions`                 | Autres mesures disciplinaires        |
-| *(optionnel)* `résumé`             | URL vers le résumé de la décision    |
-
----
-
-## 🛠 Installation et exécution locale
-
-1. Cloner le dépôt :
-
-   ```bash
-   git clone https://github.com/<votre-utilisateur>/analyseur-discipline.git
-   cd analyseur-discipline
-   ```
-2. Installer les dépendances :
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Lancer l’application :
-
-   ```bash
-   python main.py
-   ```
-4. Ouvrir dans votre navigateur : [http://127.0.0.1:5000](http://127.0.0.1:5000)
-
----
-
-## ☁️ Déploiement sur Render
-
-1. Connecter le dépôt GitHub à [Render.com](https://render.com).
-2. Paramétrer :
-
-   * **buildCommand** : `pip install -r requirements.txt`
-   * **startCommand** : `gunicorn main:app --bind 0.0.0.0:$PORT`
-3. Pousser vos modifications ; Render déploie automatiquement.
-
----
-
-## 📬 Utilisation de l’interface web
-
-1. **Uploader** votre fichier Excel.
-2. **Saisir** l’article recherché.
-3. Cliquer sur **Analyser**.
-4. **Voir** le tableau HTML (occurrences en rouge et gras) et **télécharger** le fichier Excel formaté.
-
-**URL de production** : [https://analyseur-discipline.onrender.com](https://analyseur-discipline.onrender.com)
-
----
-
-## 🧑‍💻 Auteurs et crédits
-
-* Développé par **Assistant GPT** & **Utilisateur** (2025)
-
-Licence MIT – Voir le fichier LICENSE pour plus de détails.
-
-
-
-
-
-
-
-<sub>Licence MIT – Voir le fichier LICENSE pour plus de détails.</sub>
-
-
-
+│  ├─ index.html
+│  └─ (autres templates éventuels)
+├─ main.py
+├─ requirements.txt
+└─ render.yaml
