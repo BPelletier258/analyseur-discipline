@@ -23,27 +23,91 @@ CSS = r"""
   --w-xl: 26rem;     /* très large */
 }
 *{box-sizing:border-box}
-body{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#0f172a}
+body{
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  color:#0f172a;
+  margin:0;
+}
 
-.wrap{max-width:1600px; width:98vw; margin:0 auto;}
+/* ─────────────────────────────────── */
+/* Pleine largeur                      */
+/* ─────────────────────────────────── */
+.wrap{
+  max-width: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0 12px; /* petite marge interne */
+}
 
-/* Bandeau règles + formulaire pleine largeur */
-.note{background:#fff8e6;border:1px solid #ffd48a;padding:12px 14px;border-radius:8px;margin:12px 0 16px}
-.formbar{background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:16px}
-.formgrid{display:grid;grid-template-columns: 1fr auto auto;gap:12px;align-items:end}
+/* ─────────────────────────────────── */
+/* UI                                  */
+/* ─────────────────────────────────── */
+.note{
+  background:#fff8e6;
+  border:1px solid #ffd48a;
+  padding:12px 14px;
+  border-radius:8px;
+  margin:12px 0 16px
+}
+.formbar{
+  background:#f8fafc;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  padding:16px
+}
+.formgrid{
+  display:grid;
+  grid-template-columns: 1fr auto auto;
+  gap:12px;
+  align-items:end
+}
 .formcol{display:flex;flex-direction:column;gap:8px}
 label{font-size:14px;color:#475569}
-input[type="text"]{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px}
+input[type="text"]{
+  padding:8px 10px;
+  border:1px solid #cbd5e1;
+  border-radius:8px;
+  font-size:14px;
+  min-width: 280px;
+}
 input[type="file"]{font-size:14px}
-button{background:#0ea5e9;color:white;border:none;padding:10px 16px;border-radius:10px;font-weight:600;cursor:pointer}
+button{
+  background:#0ea5e9;
+  color:white;
+  border:none;
+  padding:10px 16px;
+  border-radius:10px;
+  font-weight:600;
+  cursor:pointer
+}
 button:hover{background:#0284c7}
 
-/* Table */
-.viewport{height:60vh;overflow:auto;border:1px solid #e5e7eb;border-radius:10px}
+/* ─────────────────────────────────── */
+/* Tableau                             */
+/* ─────────────────────────────────── */
+.viewport{
+  height:60vh;
+  overflow:auto;
+  border:1px solid #e5e7eb;
+  border-radius:10px
+}
 table{width:100%; border-collapse:collapse; table-layout:fixed;}
-th,td{border:1px solid #e5e7eb; padding:6px 8px; vertical-align:top;
-      white-space:normal; word-break:normal; overflow-wrap:anywhere; hyphens:auto;}
-th{position:sticky; top:0; background:#f1f5f9; z-index:1; font-weight:700; text-align:center}
+th,td{
+  border:1px solid #e5e7eb;
+  padding:6px 8px;
+  vertical-align:top;
+  white-space:normal;
+  word-break:normal;
+  overflow-wrap:anywhere;
+  hyphens:auto;
+}
+th{
+  position:sticky; top:0;
+  background:#f1f5f9;
+  z-index:1;
+  font-weight:700;
+  text-align:center
+}
 ul{margin:0; padding-left:1.05rem}
 li{margin:0.1rem 0}
 .no-bullets ul{list-style:none; padding-left:0; margin:0}
@@ -51,12 +115,36 @@ li{margin:0.1rem 0}
 .hit{color:#c00; font-weight:700}
 
 /* Largeurs */
-.col-s { width:var(--w-s);  min-width:var(--w-s)}
-.col-m { width:var(--w-m);  min-width:var(--w-m)}
-.col-l { width:var(--w-l);  min-width:var(--w-l)}
-.col-xl{ width:var(--w-xl); min-width:var(--w-xl)}
+.col-s  { width:var(--w-s);  min-width:var(--w-s)}
+.col-m  { width:var(--w-m);  min-width:var(--w-m)}
+.col-l  { width:var(--w-l);  min-width:var(--w-l)}
+.col-xl { width:var(--w-xl); min-width:var(--w-xl)}
+
+/* ─────────────────────────────────── */
+/* Overlay “sablier”                   */
+/* ─────────────────────────────────── */
+.busy{
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,.75);
+  display: none;           /* visible au submit */
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 9999;
+}
+.spinner{
+  width: 26px; height: 26px;
+  border: 3px solid #93c5fd;
+  border-top-color: #2563eb;
+  border-radius: 9999px;
+  animation: spin .9s linear infinite;
+}
+@keyframes spin{to{transform: rotate(360deg)}}
+.busy-text{font-weight: 600; color:#1e293b}
 </style>
 """
+
 
 # =========================
 # ----  PARAMÈTRES  -------
