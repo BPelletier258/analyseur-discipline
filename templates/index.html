@@ -2,150 +2,106 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Analyseur Discipline – Filtrage par article</title>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
-      --bg:#f8fafc; --ink:#0f172a; --muted:#64748b; --brand:#0ea5e9;
-      --border:#e5e7eb; --note:#fff7ed; --note-border:#fed7aa;
-      --btn:#0ea5e9; --btn-ink:#fff; --btn-hover:#0284c7;
+      --bg:#f8fafc; --card:#eef2f7; --text:#0f172a; --muted:#64748b; --brand:#0ea5e9;
+      --shadow:0 1px 2px rgba(0,0,0,.05), 0 4px 14px rgba(0,0,0,.06);
     }
     *{box-sizing:border-box}
-    html,body{height:100%}
-    body{margin:0; font:16px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--ink); background:#fff}
-    .page{max-width:1280px; margin:18px auto 32px; padding:0 16px}
-    h1{font-size:22px; margin:0 0 10px}
-    .note{background:var(--note); border:1px solid var(--note-border); padding:10px 12px; border-radius:8px; color:#7c2d12; margin:8px 0 14px}
-    .form{background:var(--bg); border:1px solid var(--border); padding:12px; border-radius:10px; display:grid; gap:10px; align-items:end;
-          grid-template-columns: 220px 1fr 200px 140px; }
-    .form label{font-size:13px; color:var(--muted)}
-    .form input[type="text"]{width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:16px}
-    .form input[type="file"]{padding:8px; border:1px dashed var(--border); border-radius:8px; background:#fff}
-    .form .row{display:flex; align-items:center; gap:10px}
-    .form .chk{display:flex; align-items:center; gap:8px; font-size:14px; color:var(--ink)}
-    .btn{
-      display:inline-flex; align-items:center; justify-content:center;
-      min-height:44px; padding:0 16px; font-weight:600; border-radius:10px;
-      background:var(--btn); color:var(--btn-ink); border:none; cursor:pointer;
-      transition:background .15s ease; user-select:none;
-    }
-    .btn:hover{background:var(--btn-hover)}
-    .btn[disabled]{opacity:.75; cursor:progress}
+    body{margin:0; font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; color:var(--text); background:#fff}
+    .page{max-width:1200px; margin:28px auto; padding:0 20px}
+    h1{margin:0 0 20px; font-size:34px}
+    .note{background:#fff8e6;border:1px solid #ffd48a;padding:12px 14px;border-radius:10px;margin:8px 0 18px}
 
-    .toolbar{display:flex; align-items:center; justify-content:space-between; margin:14px 0}
-    .muted{color:var(--muted); font-size:13px}
+    /* Bloc formulaire */
+    .card{background:var(--bg); border:1px solid #e5e7eb; border-radius:12px; box-shadow:var(--shadow)}
+    .card .inner{padding:18px}
+    .controls{
+      display:grid;
+      grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+      gap:18px;
+      align-items:end;
+    }
+    .left > .row{display:flex; gap:16px; align-items:center; flex-wrap:wrap}
+    .right{display:flex; gap:12px; align-items:center; justify-content:flex-end; flex-wrap:wrap}
+    label{display:block; font-size:14px; color:var(--muted); margin:0 0 6px}
+    input[type="text"]{width:100%; padding:12px 12px; border:1px solid #d1d5db; border-radius:10px; font-size:16px; background:#fff}
+    input[type="file"]{max-width:100%}
+    .btn{
+      border:0; border-radius:12px; padding:12px 18px; font-size:16px; color:#fff; background:var(--brand);
+      cursor:pointer; box-shadow:var(--shadow); white-space:nowrap;
+    }
+    .btn[disabled]{opacity:.65; cursor:not-allowed}
+
+    .formats{color:var(--muted); margin:10px 0 6px}
 
     /* Spinner plein écran */
-    .spinner-backdrop{
-      position:fixed; inset:0; background:rgba(255,255,255,.75); display:none; align-items:center; justify-content:center; z-index:9999;
+    .spinner{position:fixed; inset:0; display:none; place-items:center; background:rgba(255,255,255,.6); z-index:9999}
+    .spinner.on{display:grid}
+    .spin{
+      width:48px; height:48px; border-radius:50%;
+      border:4px solid #93c5fd; border-top-color:#2563eb; animation:spin 1s linear infinite;
     }
-    .spinner{width:54px; height:54px; border:6px solid #e5e7eb; border-top-color:var(--brand); border-radius:50%;
-             animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
-
-    /* Le tableau et son CSS viennent déjà dans {{ table_html }},
-       on garde juste quelques marges autour */
-    .result{margin-top:10px}
-    a.download{font-weight:600; text-decoration:none; color:#0b6aa3}
-    a.download:hover{text-decoration:underline}
-    .error{background:#fee2e2; border:1px solid #fecaca; padding:8px 10px; border-radius:8px; color:#7f1d1d; margin:10px 0}
   </style>
 </head>
 <body>
-  <div class="page">
-    <h1>Analyseur Discipline – Filtrage par article</h1>
+<div class="page">
+  <h1>Analyseur Discipline – Filtrage par article</h1>
 
-    <div class="note">
-      <strong>Règles :</strong> détection exacte de l’article. Si la 1<sup>re</sup> cellule contient
-      « <code>Article filtré :</code> », on ignore la 1<sup>re</sup> ligne (lignes d’en-têtes sur la 2<sup>e</sup>).
-    </div>
-
-    {% if error %}
-      <div class="error">{{ error }}</div>
-    {% endif %}
-
-    <form class="form" method="post" enctype="multipart/form-data" action="{{ url_for('index') }}" id="analyzeForm">
-      <!-- Article -->
-      <div>
-        <label for="article">Article à rechercher (ex. <code>29</code>, <code>59(2)</code>)</label>
-        <input type="text" id="article" name="article" placeholder="29, 59(2)" required value="{{ article or '' }}">
-      </div>
-
-      <!-- Case à cocher -->
-      <div class="row">
-        <label class="chk" title="Ne garder que le segment contenant l’article dans les 4 colonnes d’intérêt">
-          <input type="checkbox" name="segment_only" value="1" {% if segment_only %}checked{% endif %}>
-          Afficher uniquement le segment contenant l’article dans les 4 colonnes d’intérêt
-        </label>
-      </div>
-
-      <!-- Fichier -->
-      <div>
-        <label for="file">Fichier Excel</label>
-        <input type="file" id="file" name="file" accept=".xlsx,.xlsm,.xls" required>
-      </div>
-
-      <!-- Bouton -->
-      <div>
-        <button class="btn" type="submit" id="analyzeBtn">Analyser</button>
-        {% if token %}<input type="hidden" name="token" value="{{ token }}">{% endif %}
-      </div>
-    </form>
-
-    <div class="toolbar">
-      <div class="muted">Formats : <code>.xlsx</code> / <code>.xlsm</code></div>
-      {% if table_html %}
-        <a class="download" href="{{ url_for('download') }}">Télécharger le résultat (Excel)</a>
-      {% endif %}
-    </div>
-
-    {% if table_html %}
-      <div class="result" id="result">
-        {{ table_html|safe }}
-      </div>
-    {% endif %}
+  <div class="note">
+    <strong>Règles :</strong> détection exacte de l’article. Si la 1<sup>re</sup> cellule contient « <code>Article filtré :</code> », on ignore la 1<sup>re</sup> ligne (lignes d’en-têtes sur la 2<sup>e</sup>).
   </div>
 
-  <!-- Overlay spinner -->
-  <div class="spinner-backdrop" id="spinner">
-    <div class="spinner" role="status" aria-label="Analyse en cours"></div>
+  {% if error %}
+    <div class="note" style="background:#fee2e2;border-color:#fecaca;color:#7f1d1d">{{ error }}</div>
+  {% endif %}
+
+  <div class="card">
+    <div class="inner">
+      <form id="f" method="post" enctype="multipart/form-data" onsubmit="startSpin()">
+        <div class="controls">
+          <div class="left">
+            <label for="article">Article à rechercher (ex. <code>29</code>, <code>59(2)</code>)</label>
+            <div class="row">
+              <input type="text" id="article" name="article" placeholder="29, 59(2)" value="{{ article or '' }}" required>
+              <label style="display:flex; gap:8px; align-items:center; font-size:14px;">
+                <input type="checkbox" name="segment_only" value="1" {% if segment_only %}checked{% endif %}>
+                Afficher uniquement le segment contenant l’article dans les 4 colonnes d’intérêt
+              </label>
+            </div>
+          </div>
+
+          <div class="right">
+            <div>
+              <label for="file">Fichier Excel</label>
+              <input type="file" id="file" name="file" accept=".xlsx,.xlsm" required>
+            </div>
+            <button class="btn" id="runBtn" type="submit">Analyser</button>
+          </div>
+        </div>
+        <div class="formats">Formats : <code>.xlsx</code> / <code>.xlsm</code></div>
+      </form>
+    </div>
   </div>
 
-  <script>
-    (function(){
-      const form = document.getElementById('analyzeForm');
-      const btn  = document.getElementById('analyzeBtn');
-      const spn  = document.getElementById('spinner');
+  {% if table_html %}
+    <p style="margin:12px 0">
+      <a class="btn" href="{{ url_for('download') }}">Télécharger le résultat (Excel)</a>
+    </p>
+    <div>{{ table_html|safe }}</div>
+  {% endif %}
+</div>
 
-      form.addEventListener('submit', function(){
-        // Stabilise le bouton et affiche le spinner
-        btn.disabled = true;
-        btn.textContent = 'Analyse en cours…';
-        spn.style.display = 'flex';
-      });
-    })();
-  </script>
+<div class="spinner" id="spin"><div class="spin"></div></div>
+<script>
+  function startSpin(){
+    document.getElementById('runBtn').disabled = true;
+    document.getElementById('spin').classList.add('on');
+  }
+  // au retour serveur, la page se recharge => le spinner disparaît
+</script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
