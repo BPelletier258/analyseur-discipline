@@ -1,80 +1,151 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Analyseur Discipline – Filtrage par article</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Analyseur Discipline — Filtrage par article</title>
   {{ css|safe }}
+
+  <!-- Ajustements spécifiques page + overlay -->
+  <style>
+    /* === Overlay (sablier) === */
+    .overlay {
+      position: fixed; inset: 0; background: rgba(255,255,255,0.75);
+      display: none; align-items: center; justify-content: center;
+      z-index: 9999;
+    }
+    .spinner {
+      width: 56px; height: 56px; border-radius: 50%;
+      border: 5px solid #93c5fd; border-top-color: #1d4ed8;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* === Mise en page du bandeau formulaire ===
+       1ère colonne : champ Article (large, 1fr)
+       2e  colonne : champ Fichier + nom en rouge (large)
+       3e  colonne : bouton Analyser (étroit)
+    */
+    .formgrid{
+      display:grid;
+      grid-template-columns: 1fr 560px 120px; /* << plus large au centre, bouton à droite */
+      gap:12px;
+      align-items:end;
+    }
+    .formcol{display:flex;flex-direction:column;gap:8px}
+
+    /* Ligne fichier : on veut que le nom prenne TOUT l'espace restant */
+    .file-row{
+      display:flex;gap:10px;align-items:center;min-width:0;
+    }
+    /* Le contrôle <input type="file"> ne s’étire pas beaucoup selon le navigateur,
+       mais on laisse une largeur naturelle et on donne l’espace à .file-name */
+    input[type="file"]{max-width: 100%;}
+
+    .file-name{
+      color:#dc2626;font-weight:700;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+      flex:1; min-width:0;
+    }
+
+    .btn-download {
+      display:inline-block;background:#0ea5e9;color:#fff;text-decoration:none;
+      padding:10px 16px;border-radius:10px;font-weight:700
+    }
+    .err { color:#dc2626; margin: 8px 0 0 0; }
+  </style>
 </head>
 <body>
+  <div class="wrap">
+    <h1>Analyseur Discipline – Filtrage par article</h1>
 
-<div class="wrap">
-  <h1>Analyseur Discipline – Filtrage par article</h1>
-
-  <div class="note">
-    <strong>Règles :</strong> détection exacte de l’article.
-    Si la 1<sup>re</sup> cellule contient « <code>Article filtré :</code> », on ignore la 1<sup>re</sup> ligne (lignes d’en-têtes sur la 2<sup>e</sup>).
-  </div>
-
-  {% if error %}
-    <div class="note" style="border-color:#fda4af;background:#ffe4e6;color:#991b1b">
-      {{ error }}
+    <div class="note">
+      <strong>Règles :</strong> détection exacte de l’article. Si la 1<sup>re</sup> cellule contient
+      « <code>Article filtré :</code> », on ignore la 1<sup>re</sup> ligne (lignes d’en-têtes sur la 2<sup>e</sup>).
     </div>
-  {% endif %}
 
-  <div class="formbar">
-    <form id="analyzeForm" action="{{ url_for('analyze') }}" method="post" enctype="multipart/form-data">
+    {% if error %}
+      <p class="err">{{ error }}</p>
+    {% endif %}
+
+    <form class="formbar" action="{{ url_for('analyze') }}" method="post" enctype="multipart/form-data" id="analyzeForm">
       <div class="formgrid">
-        <div class="formcol">
-          <label>Article à rechercher (ex. <code>29</code>, <code>59(2)</code>)</label>
-          <input type="text" name="article" value="{{ article or '' }}" placeholder="29, 59(2)" required>
+        <!-- Colonne 1 : Article -->
+        <div class="formcol" style="grid-column:1;">
+          <label for="article">Article à rechercher (ex. <em>29, 59(2)</em>)</label>
+          <input type="text" name="article" id="article" value="{{ article }}" placeholder="29, 59(2)" required />
 
-          <label style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-            <input type="checkbox" name="only_segment" {% if only_segment %}checked{% endif %}>
+          <label style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+            <input type="checkbox" name="only_segment" id="only_segment" value="1"
+                   {% if only_segment %}checked{% endif %} />
             Afficher uniquement le segment contenant l’article dans les 4 colonnes d’intérêt
           </label>
 
-          <div style="font-size:12px;color:#475569;margin-top:4px">
+          <div style="font-size:12px; color:#475569; margin-top:4px;">
             Formats : <code>.xlsx</code> / <code>.xlsm</code>
           </div>
         </div>
 
-        <div class="formcol">
-          <label>Fichier Excel</label>
-          <input type="file" name="file" required>
+        <!-- Colonne 2 : Fichier (beaucoup plus d'espace, plus à gauche) -->
+        <div class="formcol" style="grid-column:2;">
+          <label for="file">Fichier Excel</label>
+          <div class="file-row">
+            <input type="file" name="file" id="file" required />
+            <span id="fileName" class="file-name" title="aucun fichier sélectionné">aucun fichier sélectionné</span>
+          </div>
         </div>
 
-        <div class="formcol">
-          <button type="submit" style="margin-top:24px;">Analyser</button>
+        <!-- Colonne 3 : Bouton Analyser, étroit -->
+        <div class="formcol" style="grid-column:3;">
+          <label>&nbsp;</label>
+          <button type="submit">Analyser</button>
         </div>
       </div>
     </form>
+
+    <div style="margin:12px 0 16px;">
+      <a class="btn-download" href="{{ url_for('download') }}">Télécharger le résultat (Excel)</a>
+    </div>
+
+    <!-- Tableau HTML des résultats -->
+    <div id="results">
+      {% if html_table %}
+        {{ html_table|safe }}
+      {% endif %}
+    </div>
   </div>
 
-  {% if html_table %}
-    <div style="margin:12px 0 8px">
-      <a href="{{ url_for('download') }}"
-         style="background:#0ea5e9;color:#fff;padding:8px 12px;border-radius:8px;text-decoration:none;">
-        Télécharger le résultat (Excel)
-      </a>
-    </div>
-    {{ html_table|safe }}
-  {% endif %}
-</div>
+  <!-- Overlay (sablier) -->
+  <div class="overlay" id="busyOverlay">
+    <div class="spinner" aria-label="Analyse en cours…"></div>
+  </div>
 
-<!-- Overlay sablier -->
-<div id="busy" class="busy" aria-hidden="true">
-  <div class="spinner" aria-hidden="true"></div>
-  <div class="busy-text">Analyse en cours…</div>
-</div>
+  <script>
+    (function () {
+      const form      = document.getElementById('analyzeForm');
+      const overlay   = document.getElementById('busyOverlay');
+      const fileInput = document.getElementById('file');
+      const fileName  = document.getElementById('fileName');
 
-<script>
-  // Affiche l’overlay dès qu’on soumet le formulaire ; il disparaît à l’affichage du résultat.
-  document.getElementById('analyzeForm')?.addEventListener('submit', function () {
-    const b = document.getElementById('busy');
-    if (b) b.style.display = 'flex';
-  });
-</script>
+      // Nom du fichier affiché en rouge (et en title pour tooltip complet)
+      function refreshFileName() {
+        if (fileInput.files && fileInput.files.length) {
+          fileName.textContent = fileInput.files[0].name;
+          fileName.title = fileInput.files[0].name;
+        } else {
+          fileName.textContent = 'aucun fichier sélectionné';
+          fileName.title = 'aucun fichier sélectionné';
+        }
+      }
+      fileInput.addEventListener('change', refreshFileName);
+      // Init
+      refreshFileName();
 
+      // Sablier au submit
+      form.addEventListener('submit', function () {
+        overlay.style.display = 'flex';
+      });
+    })();
+  </script>
 </body>
 </html>
