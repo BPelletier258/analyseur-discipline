@@ -44,6 +44,8 @@ body{
 /* ─────────────────────────────────── */
 /* UI                                  */
 /* ─────────────────────────────────── */
+.file-row{display:flex;gap:10px;align-items:center}
+.file-name{color:#dc2626;font-weight:700}
 .note{
   background:#fff8e6;
   border:1px solid #ffd48a;
