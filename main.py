@@ -1,11 +1,6 @@
 
----
-
 # 🧠 main.py (version consolidée)
 
-> Remplace directement le contenu de `main.py` par ce qui suit.
-
-```python
 # -*- coding: utf-8 -*-
 import re
 import math
