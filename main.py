@@ -96,6 +96,29 @@ INTEREST_COLS = [
 # =========================
 # ----  UTILITAIRES   -----
 # =========================
+EMPTY_SPAN = "<span class='empty'>—</span>"
+
+def render_cell(value: str, column_name: str, bulletize: bool, show_only_segment: bool, pattern: re.Pattern) -> str:
+    raw = _safe_str(value)
+
+    if column_name == "Total amendes":
+        raw = fmt_amount(raw)
+
+    if show_only_segment and column_name in INTEREST_COLS:
+        items = split_items(raw)
+        items = [highlight(x, pattern) for x in items if pattern.search(x)]
+        raw = "\n".join(items)
+
+    raw = highlight(raw, pattern)
+
+    is_list_col = column_name in LIST_COLUMNS
+    html = to_bullets(raw, bulletize=is_list_col)
+
+    cls = "" if is_list_col else " no-bullets"
+
+    # ✅ calcule d’abord ce qu’on insère, sans backslash dans l’expression du f-string
+    display = html if html else EMPTY_SPAN
+    return f'<div class="{cls.strip()}">{display}</div>'
 
 def _safe_str(x) -> str:
     if x is None or (isinstance(x, float) and math.isnan(x)):
