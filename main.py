@@ -1,3 +1,11 @@
+
+---
+
+# 🧠 main.py (version consolidée)
+
+> Remplace directement le contenu de `main.py` par ce qui suit.
+
+```python
 # -*- coding: utf-8 -*-
 import re
 import math
@@ -7,7 +15,6 @@ from typing import Optional
 import pandas as pd
 from flask import Flask, render_template, request, send_file
 from markupsafe import Markup  # Flask 3.x : Markup vient de markupsafe
-# Assure-toi d'avoir `xlsxwriter` dans requirements.txt
 
 app = Flask(__name__)
 
@@ -23,91 +30,28 @@ CSS = r"""
   --w-xl: 26rem;     /* très large */
 }
 *{box-sizing:border-box}
-body{
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  color:#0f172a;
-  margin:0;
-}
+body{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#0f172a}
 
-/* ─────────────────────────────────── */
-/* Pleine largeur                      */
-/* ─────────────────────────────────── */
-.wrap{
-  max-width: 100%;
-  width: 100%;
-  margin: 0;
-  padding: 0 12px; /* petite marge interne */
-}
+/* Conteneur large mais fluide */
+.wrap{max-width:1600px; width:98vw; margin:0 auto;}
 
-/* ─────────────────────────────────── */
-/* UI                                  */
-/* ─────────────────────────────────── */
-.note{
-  background:#fff8e6;
-  border:1px solid #ffd48a;
-  padding:12px 14px;
-  border-radius:8px;
-  margin:12px 0 16px
-}
-.formbar{
-  background:#f8fafc;
-  border:1px solid #e5e7eb;
-  border-radius:10px;
-  padding:16px
-}
-.formgrid{
-  display:grid;
-  grid-template-columns: 1fr auto auto;
-  gap:12px;
-  align-items:end
-}
+/* Bandeau règles + formulaire */
+.note{background:#fff8e6;border:1px solid #ffd48a;padding:12px 14px;border-radius:8px;margin:12px 0 16px}
+.formbar{background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:16px}
+.formgrid{display:grid;grid-template-columns: 1fr auto auto;gap:12px;align-items:end}
 .formcol{display:flex;flex-direction:column;gap:8px}
 label{font-size:14px;color:#475569}
-input[type="text"]{
-  padding:8px 10px;
-  border:1px solid #cbd5e1;
-  border-radius:8px;
-  font-size:14px;
-  min-width: 280px;
-}
+input[type="text"]{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px}
 input[type="file"]{font-size:14px}
-button{
-  background:#0ea5e9;
-  color:white;
-  border:none;
-  padding:10px 16px;
-  border-radius:10px;
-  font-weight:600;
-  cursor:pointer
-}
+button{background:#0ea5e9;color:white;border:none;padding:10px 16px;border-radius:10px;font-weight:600;cursor:pointer}
 button:hover{background:#0284c7}
 
-/* ─────────────────────────────────── */
-/* Tableau                             */
-/* ─────────────────────────────────── */
-.viewport{
-  height:60vh;
-  overflow:auto;
-  border:1px solid #e5e7eb;
-  border-radius:10px
-}
+/* Table */
+.viewport{height:60vh;overflow:auto;border:1px solid #e5e7eb;border-radius:10px}
 table{width:100%; border-collapse:collapse; table-layout:fixed;}
-th,td{
-  border:1px solid #e5e7eb;
-  padding:6px 8px;
-  vertical-align:top;
-  white-space:normal;
-  word-break:normal;
-  overflow-wrap:anywhere;
-  hyphens:auto;
-}
-th{
-  position:sticky; top:0;
-  background:#f1f5f9;
-  z-index:1;
-  font-weight:700;
-  text-align:center
-}
+th,td{border:1px solid #e5e7eb; padding:6px 8px; vertical-align:top;
+      white-space:normal; word-break:normal; overflow-wrap:anywhere; hyphens:auto;}
+th{position:sticky; top:0; background:#f1f5f9; z-index:1; font-weight:700; text-align:center}
 ul{margin:0; padding-left:1.05rem}
 li{margin:0.1rem 0}
 .no-bullets ul{list-style:none; padding-left:0; margin:0}
@@ -115,36 +59,12 @@ li{margin:0.1rem 0}
 .hit{color:#c00; font-weight:700}
 
 /* Largeurs */
-.col-s  { width:var(--w-s);  min-width:var(--w-s)}
-.col-m  { width:var(--w-m);  min-width:var(--w-m)}
-.col-l  { width:var(--w-l);  min-width:var(--w-l)}
-.col-xl { width:var(--w-xl); min-width:var(--w-xl)}
-
-/* ─────────────────────────────────── */
-/* Overlay “sablier”                   */
-/* ─────────────────────────────────── */
-.busy{
-  position: fixed;
-  inset: 0;
-  background: rgba(255,255,255,.75);
-  display: none;           /* visible au submit */
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  z-index: 9999;
-}
-.spinner{
-  width: 26px; height: 26px;
-  border: 3px solid #93c5fd;
-  border-top-color: #2563eb;
-  border-radius: 9999px;
-  animation: spin .9s linear infinite;
-}
-@keyframes spin{to{transform: rotate(360deg)}}
-.busy-text{font-weight: 600; color:#1e293b}
+.col-s { width:var(--w-s);  min-width:var(--w-s)}
+.col-m { width:var(--w-m);  min-width:var(--w-m)}
+.col-l { width:var(--w-l);  min-width:var(--w-l)}
+.col-xl{ width:var(--w-xl); min-width:var(--w-xl)}
 </style>
 """
-
 
 # =========================
 # ----  PARAMÈTRES  -------
@@ -203,7 +123,10 @@ WIDTH_CLASS = {
     "Nbr Chefs par articles par période de radiation": "col-l",
     "Autres mesures ordonnées": "col-l",
 }
+
+# Affichage pour cellule vide
 EMPTY_SPAN = "<span class='empty'>—</span>"
+
 # ============== Utils ==============
 
 def _safe_str(x) -> str:
@@ -212,6 +135,7 @@ def _safe_str(x) -> str:
     return str(x).strip()
 
 def fmt_amount(x) -> str:
+    """Format 0 -> 0 $, 5000 -> 5 000 $"""
     s = _safe_str(x)
     if s == "":
         return ""
@@ -225,6 +149,7 @@ def fmt_amount(x) -> str:
         return s
 
 def split_items(text: str) -> list[str]:
+    """Découpage léger en items."""
     if not text:
         return []
     t = text.replace("•", "\n").replace("\r", "\n")
@@ -233,6 +158,7 @@ def split_items(text: str) -> list[str]:
     return parts if parts else [text.strip()]
 
 def to_bullets(text: str, bulletize: bool) -> str:
+    """Rend en <ul><li> si bulletize=True et qu'il y a plusieurs items ; sinon renvoie le texte brut."""
     if not text:
         return ""
     items = split_items(text)
@@ -257,40 +183,32 @@ def render_cell(
     pattern: re.Pattern
 ) -> str:
     """
-    Rendu HTML d'une cellule, avec :
+    Rendu HTML d'une cellule :
       - formatage des montants ('Total amendes'),
       - isolement éventuel du segment dans les colonnes d'intérêt,
-      - surlignage de l'article recherché,
-      - rendu en liste à puces pour les colonnes de type liste,
-      - valeur vide affichée comme un tiret gris.
+      - surlignage de l'article recherché (selon règles),
+      - listes à puces sur colonnes prévues,
+      - tiret gris si vide.
     """
-    # 0) Normalisation de la valeur brute
     raw = _safe_str(value)
 
-    # 1) Mise en forme des amendes
     if column_name == "Total amendes":
         raw = fmt_amount(raw)
 
-    # 2) Option "n'afficher que le segment contenant l'article"
     if show_only_segment and column_name in INTEREST_COLS:
         items = split_items(raw)
         items = [x for x in items if pattern.search(x)]
         raw = "\n".join(items)
 
-    # 3) Surlignage (après éventuel filtrage)
+    # surlignage HTML (respecte NO_HTML_HILIGHT)
     raw = html_highlight(raw, pattern, column_name)
 
-    # 4) Rendu : liste à puces seulement pour les colonnes prévues
-    is_list_col = (column_name in LIST_COLUMNS)
+    is_list_col = column_name in LIST_COLUMNS
     html = to_bullets(raw, bulletize=is_list_col)
 
-    # 5) Classe CSS pour enlever les puces ailleurs
     cls = "" if is_list_col else " no-bullets"
-
-    # 6) Affichage vide → tiret gris
     display = html if html else EMPTY_SPAN
     return f'<div class="{cls.strip()}">{display}</div>'
-
 
 def build_html_table(df: pd.DataFrame, article: str, show_only_segment: bool) -> str:
     token = re.escape(article.strip())
@@ -308,13 +226,12 @@ def build_html_table(df: pd.DataFrame, article: str, show_only_segment: bool) ->
         out.append("<tr>")
         for h in headers:
             cell = render_cell(
-              value=row.get(h, ""),
-              column_name=h,
-              bulletize=(h in LIST_COLUMNS),
-              show_only_segment=show_only_segment,
-              pattern=pattern
+                row.get(h, ""),
+                column_name=h,
+                bulletize=True,
+                show_only_segment=show_only_segment,
+                pattern=pattern,
             )
-
             out.append(f'<td class="{WIDTH_CLASS.get(h, "col-m")}">{cell}</td>')
         out.append("</tr>")
 
@@ -336,14 +253,17 @@ def filter_rows_keep_if_any_interest_match(df: pd.DataFrame, article: str) -> pd
     return df[mask].reset_index(drop=True)
 
 def export_excel(df: pd.DataFrame, article: str) -> BytesIO:
-    """Excel :
-       - Ligne 1: 'Article filtré : X'
-       - Ligne 2: en-têtes (style)
-       - Lignes suivantes: données
-       - Wrap + alignement haut partout
-       - Largeurs auto
-       - L’article est surligné (en rouge) dans LES 4 colonnes d’intérêt (à l’intérieur des cellules)
     """
+    Excel :
+      - Ligne 1: 'Article filtré : X'
+      - Ligne 2: en-têtes (style)
+      - Lignes suivantes: données
+      - Wrap + alignement haut partout
+      - Largeurs auto
+      - L’article est surligné dans LES 4 colonnes d’intérêt (rich string)
+    """
+    import xlsxwriter  # assuré par requirements.txt
+
     token = re.escape(article.strip())
     pattern = re.compile(rf"(?<!\d){token}(?!\d)", flags=re.IGNORECASE)
 
@@ -367,7 +287,7 @@ def export_excel(df: pd.DataFrame, article: str) -> BytesIO:
         headers = list(df.columns)
         ws.write_row(1, 0, headers, hdr_fmt)
 
-        # Écrit le DataFrame SANS en-têtes à partir de la ligne 3
+        # Données (sans réécrire les en-têtes)
         df.to_excel(xw, sheet_name="Résultat", startrow=2, startcol=0, index=False, header=False)
 
         # Wrap + alignement haut partout
@@ -375,7 +295,7 @@ def export_excel(df: pd.DataFrame, article: str) -> BytesIO:
         ws.set_column(0, ncols-1, 22, top_wrap)  # largeur de base + format
         ws.freeze_panes(2, 0)  # fige la ligne d’en-têtes (après le titre)
 
-        # Largeurs “auto” approximatives (max 60)
+        # Largeurs auto approximatives
         for c, name in enumerate(headers):
             max_len = max(
                 [len(str(name))] + [len(_safe_str(v)) for v in df.iloc[:, c].tolist()]
@@ -388,29 +308,27 @@ def export_excel(df: pd.DataFrame, article: str) -> BytesIO:
             if col_name not in headers:
                 continue
             col_idx = headers.index(col_name)
-            # réécriture des cellules de cette colonne (pour injecter un format partiel)
-            # Simplification : si la cellule contient le pattern, on réécrit la cellule en texte
-            # en entourant l’article par un format "rich string"
+
             for row_idx in range(len(df)):
                 txt = _safe_str(df.iat[row_idx, col_idx])
                 if not txt:
                     continue
-                m = list(pattern.finditer(txt))
-                if not m:
+                matches = list(pattern.finditer(txt))
+                if not matches:
                     continue
-                # Construit une rich string: [avant, (rouge, match), milieu, (rouge, match2), ... , après]
+
+                # Rich string: texte normal + morceaux surlignés
                 pieces = []
                 last = 0
-                for match in m:
-                    if match.start() > last:
-                        pieces.append(txt[last:match.start()])
+                for m in matches:
+                    if m.start() > last:
+                        pieces.append(txt[last:m.start()])
                     pieces.append(red)
-                    pieces.append(match.group(0))
-                    last = match.end()
+                    pieces.append(m.group(0))
+                    last = m.end()
                 if last < len(txt):
                     pieces.append(txt[last:])
 
-                # Efface et réécrit la cellule avec le format wrap/haut
                 ws.write_rich_string(row_idx + 2, col_idx, *pieces, top_wrap)
 
     bio.seek(0)
@@ -433,25 +351,39 @@ def analyze():
     only_segment = bool(request.form.get("only_segment"))
 
     if "file" not in request.files or article == "":
-        return render_template("index.html", html_table="", css=Markup(CSS), article=article, only_segment=only_segment, error="Fichier et article requis.")
+        return render_template(
+            "index.html",
+            html_table="",
+            css=Markup(CSS),
+            article=article,
+            only_segment=only_segment,
+            error="Fichier et article requis."
+        )
 
     file = request.files["file"]
     try:
         df = pd.read_excel(file)
     except Exception as e:
-        return render_template("index.html", html_table="", css=Markup(CSS), article=article, only_segment=only_segment, error=f"Lecture Excel impossible : {e}")
+        return render_template(
+            "index.html",
+            html_table="",
+            css=Markup(CSS),
+            article=article,
+            only_segment=only_segment,
+            error=f"Lecture Excel impossible : {e}"
+        )
 
-    # Normalisations simples de colonnes $ (si présente)
+    # Normalisation simple des montants (si présente)
     if "Total amendes" in df.columns:
         df["Total amendes"] = df["Total amendes"].map(fmt_amount)
 
-    # 1/ On ne garde que les lignes où l’article est présent dans AU MOINS UNE des 4 colonnes d’intérêt
+    # 1) Ne garder que les lignes où l'article est dans AU MOINS UNE des 4 colonnes d’intérêt
     df = filter_rows_keep_if_any_interest_match(df, article)
 
-    # 2/ HTML
+    # 2) HTML
     html_table = build_html_table(df, article, only_segment)
 
-    # 3/ Excel prêt à télécharger
+    # 3) Excel prêt à télécharger
     _last_excel = export_excel(df, article)
     _last_excel_name = f"resultat_{article}.xlsx"
 
@@ -467,9 +399,13 @@ def analyze():
 @app.route("/download", methods=["GET"])
 def download():
     if _last_excel is None:
-        # rien à télécharger
         return home()
-    return send_file(_last_excel, as_attachment=True, download_name=_last_excel_name, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    return send_file(
+        _last_excel,
+        as_attachment=True,
+        download_name=_last_excel_name,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
