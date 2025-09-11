@@ -69,6 +69,7 @@ li{margin:0.1rem 0}
 .btn-download{display:inline-block;margin:12px 0 8px;background:#10b981;border-radius:10px;padding:10px 16px;color:#fff;text-decoration:none;font-weight:700}
 .btn-download:hover{background:#059669}
 .btn-download[aria-disabled="true"]{opacity:.5;pointer-events:none}
+.muted.small { color:#64748b; font-size:0.875rem; }
 
 /* Sablier overlay (si tu l'utilises dans index.html) */
 .spinner-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,.6);z-index:9999}
