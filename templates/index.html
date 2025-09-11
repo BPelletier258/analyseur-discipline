@@ -6,9 +6,8 @@
   <title>Analyseur Discipline — Filtrage par article</title>
   {{ css|safe }}
 
-  <!-- Ajustements spécifiques page + overlay -->
   <style>
-    /* === Overlay (sablier) === */
+    /* Overlay (sablier) */
     .overlay {
       position: fixed; inset: 0; background: rgba(255,255,255,0.75);
       display: none; align-items: center; justify-content: center;
@@ -21,38 +20,35 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* === Mise en page du bandeau formulaire ===
-       1ère colonne : champ Article (large, 1fr)
-       2e  colonne : champ Fichier + nom en rouge (large)
-       3e  colonne : bouton Analyser (étroit)
-    */
+    /* Formulaire : 1) Article (large) 2) Fichier (large) 3) Bouton (étroit) */
     .formgrid{
       display:grid;
-      grid-template-columns: 1fr 560px 120px; /* << plus large au centre, bouton à droite */
+      grid-template-columns: 1fr 560px 120px;
       gap:12px;
       align-items:end;
     }
     .formcol{display:flex;flex-direction:column;gap:8px}
 
-    /* Ligne fichier : on veut que le nom prenne TOUT l'espace restant */
-    .file-row{
-      display:flex;gap:10px;align-items:center;min-width:0;
-    }
-    /* Le contrôle <input type="file"> ne s’étire pas beaucoup selon le navigateur,
-       mais on laisse une largeur naturelle et on donne l’espace à .file-name */
-    input[type="file"]{max-width: 100%;}
+    /* Ligne fichier */
+    .file-row{ display:flex; gap:10px; align-items:center; min-width:0; }
+    input[type="file"]{ max-width:100%; }
 
+    /* Nom de fichier rouge + ellipsis + tooltip */
     .file-name{
-      color:#dc2626;font-weight:700;
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+      color:#dc2626; font-weight:700;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
       flex:1; min-width:0;
     }
 
     .btn-download {
-      display:inline-block;background:#0ea5e9;color:#fff;text-decoration:none;
-      padding:10px 16px;border-radius:10px;font-weight:700
+      display:inline-block; background:#0ea5e9; color:#fff; text-decoration:none;
+      padding:10px 16px; border-radius:10px; font-weight:700;
     }
-    .err { color:#dc2626; margin: 8px 0 0 0; }
+    .btn-download[disabled]{
+      opacity:.65; pointer-events:none;
+    }
+
+    .err { color:#dc2626; margin:8px 0 0 0; }
   </style>
 </head>
 <body>
@@ -86,7 +82,7 @@
           </div>
         </div>
 
-        <!-- Colonne 2 : Fichier (beaucoup plus d'espace, plus à gauche) -->
+        <!-- Colonne 2 : Fichier -->
         <div class="formcol" style="grid-column:2;">
           <label for="file">Fichier Excel</label>
           <div class="file-row">
@@ -95,7 +91,7 @@
           </div>
         </div>
 
-        <!-- Colonne 3 : Bouton Analyser, étroit -->
+        <!-- Colonne 3 : Bouton -->
         <div class="formcol" style="grid-column:3;">
           <label>&nbsp;</label>
           <button type="submit">Analyser</button>
@@ -103,11 +99,14 @@
       </div>
     </form>
 
-    <div style="margin:12px 0 16px;">
-      <a class="btn-download" href="{{ url_for('download') }}">Télécharger le résultat (Excel)</a>
-    </div>
+    <!-- Bouton de téléchargement : seulement si on a des résultats ET un Excel prêt -->
+    {% if html_table and has_excel %}
+      <div style="margin:12px 0 16px;">
+        <a id="btnDownload" class="btn-download" href="{{ url_for('download') }}">Télécharger le résultat (Excel)</a>
+      </div>
+    {% endif %}
 
-    <!-- Tableau HTML des résultats -->
+    <!-- Tableau HTML -->
     <div id="results">
       {% if html_table %}
         {{ html_table|safe }}
@@ -126,8 +125,8 @@
       const overlay   = document.getElementById('busyOverlay');
       const fileInput = document.getElementById('file');
       const fileName  = document.getElementById('fileName');
+      const btnDl     = document.getElementById('btnDownload');
 
-      // Nom du fichier affiché en rouge (et en title pour tooltip complet)
       function refreshFileName() {
         if (fileInput.files && fileInput.files.length) {
           fileName.textContent = fileInput.files[0].name;
@@ -138,13 +137,21 @@
         }
       }
       fileInput.addEventListener('change', refreshFileName);
-      // Init
       refreshFileName();
 
-      // Sablier au submit
+      // Sablier pendant l'analyse
       form.addEventListener('submit', function () {
         overlay.style.display = 'flex';
       });
+
+      // Désactiver le bouton après clic (pour éviter double-téléchargement)
+      if (btnDl) {
+        btnDl.addEventListener('click', function () {
+          btnDl.setAttribute('disabled', 'disabled');
+          btnDl.textContent = 'Téléchargement…';
+          // Laisser le navigateur faire le download, le bouton reste inhibé
+        });
+      }
     })();
   </script>
 </body>
