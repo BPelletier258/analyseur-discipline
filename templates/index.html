@@ -100,11 +100,21 @@
     </form>
 
     <!-- Bouton de téléchargement : seulement si on a des résultats ET un Excel prêt -->
-    {% if html_table and has_excel %}
-      <div style="margin:12px 0 16px;">
-        <a id="btnDownload" class="btn-download" href="{{ url_for('download') }}">Télécharger le résultat (Excel)</a>
+    {% if html_table %}
+  {% if has_excel %}
+    <a id="dlBtn"
+       class="btn-download{% if download_disabled %} is-disabled{% endif %}"
+       href="{{ url_for('download') }}"
+       {% if download_disabled %}aria-disabled="true" tabindex="-1"{% endif %}>
+       {% if download_disabled %}Téléchargement…{% else %}Télécharger le résultat (Excel){% endif %}
+    </a>
+    {% if download_disabled %}
+      <div class="muted small" style="margin-top:6px">
+        Fichier téléchargé. Relancez <strong>Analyser</strong> pour générer un nouveau fichier.
       </div>
     {% endif %}
+  {% endif %}
+{% endif %}
 
     <!-- Tableau HTML -->
     <div id="results">
